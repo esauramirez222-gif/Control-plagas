@@ -36,13 +36,14 @@ const Store = (() => {
     return false;
   }
 
-  function save() {
+  /** Guarda en el navegador. Con silent=true no redibuja la pantalla (útil mientras el usuario escribe). */
+  function save(silent = false) {
     try {
       localStorage.setItem(KEY, JSON.stringify(data));
     } catch (e) {
       console.warn('No se pudieron guardar los datos', e);
     }
-    listeners.forEach((fn) => fn());
+    if (!silent) listeners.forEach((fn) => fn());
   }
 
   const onChange = (fn) => listeners.add(fn);
@@ -201,7 +202,21 @@ const Store = (() => {
   }
 
   /* ------------------------------ Mensajes ------------------------------ */
+  /** Mensaje de seguimiento: el personalizado para ese cliente, o el de la plantilla general. */
   function mensajeSeguimiento(s) {
+    return s.mensajeSeguimiento || mensajeSeguimientoOriginal(s);
+  }
+
+  /** Guarda (o borra, si viene vacío) el mensaje personalizado de un seguimiento. */
+  function setMensajeSeguimiento(servicioId, texto, silent = true) {
+    const s = getServicio(servicioId);
+    if (!s) return;
+    const limpio = (texto || '').trim();
+    s.mensajeSeguimiento = limpio && limpio !== mensajeSeguimientoOriginal(s).trim() ? texto : null;
+    save(silent);
+  }
+
+  function mensajeSeguimientoOriginal(s) {
     const c = getCliente(s.clienteId);
     return U.fillTemplate(data.ajustes.plantillaSeguimiento, {
       nombre: c.nombre, apellido: c.apellido, negocio: data.ajustes.negocio,
@@ -253,7 +268,7 @@ const Store = (() => {
     deleteCliente, bloquear, desbloquear, getServicio, serviciosDe, addServicio, updateServicio, marcarRealizado,
     pendientes, proximoServicio, ultimoRealizado, fechaSeguimiento, seguimientos, seguimientosPorEnviar,
     seguimientosProximos, seguimientosEnviados, marcarSeguimiento, comentariosDe, ultimoComentario, addComentario,
-    deleteComentario, mensajeSeguimiento, mensajeRecordatorio, getAjustes, setAjustes, exportJSON, importJSON,
+    deleteComentario, mensajeSeguimiento, mensajeSeguimientoOriginal, setMensajeSeguimiento, mensajeRecordatorio, getAjustes, setAjustes, exportJSON, importJSON,
     replaceAll, clearAll, DEFAULT_AJUSTES,
   };
 })();

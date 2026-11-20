@@ -61,7 +61,9 @@ const C = (() => {
         <div class="client-card__meta">
           <span>${Icon('history')} Último servicio: <strong>${ult ? `${U.formatDateShort(ult.fecha)} · ${esc(ult.tipo)}` : 'Ninguno'}</strong></span>
         </div>
-        ${ultimo ? `<p class="client-card__comment ${ultimo.negativo ? 'is-negative' : ''}">${Icon('comment')} <span>“${esc(ultimo.texto)}”</span></p>` : ''}
+        ${c.bloqueado
+          ? `<p class="client-card__comment is-negative">${Icon('ban')} <span><strong>Bloqueado desde el ${U.formatDateShort(c.fechaBloqueo)}.</strong> Motivo: ${esc(c.motivoBloqueo)}</span></p>`
+          : ultimo ? `<p class="client-card__comment ${ultimo.negativo ? 'is-negative' : ''}">${Icon('comment')} <span>“${esc(ultimo.texto)}”</span></p>` : ''}
       </a>`;
   }
 
@@ -96,7 +98,7 @@ const C = (() => {
   }
 
   /** Tarjeta de seguimiento por WhatsApp. */
-  function seguimientoCard(x, { mode = 'enviar' } = {}) {
+  function seguimientoCard(x, { mode = 'enviar', editable = true } = {}) {
     const { servicio: s, cliente: c, fecha } = x;
     const hoy = U.todayStr();
     const atraso = U.diffDays(fecha, hoy);
@@ -124,12 +126,18 @@ const C = (() => {
           Seguimiento acordado: <strong>${plazo}</strong>.
         </p>
         ${mode === 'enviar' ? `
-        <details class="followup-card__preview">
-          <summary>Ver el mensaje que se enviará</summary>
-          <p>${esc(Store.mensajeSeguimiento(s)).replace(/\n/g, '<br>')}</p>
-        </details>
+        ${!editable ? '' : `<div class="followup-card__msg">
+          <div class="followup-card__msg-head">
+            <label for="msg-${s.id}">${Icon('whatsapp')} Mensaje para ${esc(c.nombre)}</label>
+            <span class="badge badge--info" data-msg-status="${s.id}" ${s.mensajeSeguimiento ? '' : 'hidden'}>${Icon('edit')}Personalizado</span>
+          </div>
+          <p class="hint">Puede cambiar el texto antes de enviarlo. Los cambios se guardan solos y solo aplican a este cliente.</p>
+          <textarea id="msg-${s.id}" data-msg="${s.id}" rows="6">${esc(Store.mensajeSeguimiento(s))}</textarea>
+          <button type="button" class="btn btn--ghost btn--sm" data-action="restaurar-mensaje" data-id="${s.id}" ${s.mensajeSeguimiento ? '' : 'hidden'}>${Icon('refresh')} Volver al mensaje original</button>
+        </div>`}
         <div class="btn-row">
           <button class="btn btn--wa btn--lg" data-action="enviar-seguimiento" data-id="${s.id}">${Icon('whatsapp')} Enviar por WhatsApp</button>
+          ${editable ? '' : `<a class="btn btn--ghost" href="#/seguimiento">${Icon('edit')} Cambiar mensaje</a>`}
           <button class="btn btn--soft" data-action="agendar-servicio" data-cliente="${c.id}">${Icon('calendar')} Agendar otro servicio</button>
           <button class="btn btn--ghost" data-action="omitir-seguimiento" data-id="${s.id}">No enviar</button>
         </div>` : ''}

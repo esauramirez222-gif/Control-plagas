@@ -6,7 +6,6 @@
     { route: 'clientes', label: 'Clientes', icon: 'users' },
     { route: 'agenda', label: 'Agenda', icon: 'calendar', badge: () => Store.pendientes().filter((s) => s.fecha <= U.todayStr()).length },
     { route: 'seguimiento', label: 'Seguimiento', icon: 'whatsapp', badge: () => Store.seguimientosPorEnviar().length },
-    { route: 'bloqueados', label: 'Bloqueados', icon: 'ban' },
   ];
 
   /* ---------- Navegación ---------- */
@@ -31,9 +30,15 @@
   let lastRouteKey = '';
   function render() {
     const { route, param } = parseRoute();
+    // Los bloqueados viven dentro de Clientes (filtro “Bloqueados”); se respeta el enlace antiguo
+    if (route === 'bloqueados') {
+      Views.ui.filtroClientes = 'bloqueados';
+      location.replace('#/clientes');
+      return;
+    }
     const views = {
       inicio: Views.inicio, clientes: Views.clientes, agenda: Views.agenda, seguimiento: Views.seguimiento,
-      bloqueados: Views.bloqueados, ajustes: Views.ajustes, cliente: () => Views.cliente(param),
+      ajustes: Views.ajustes, cliente: () => Views.cliente(param),
     };
     const view = (views[route] || Views.inicio)();
     const key = `${route}/${param || ''}`;
@@ -47,8 +52,6 @@
     document.getElementById('page-subtitle').textContent = view.subtitle || '';
     document.title = `${view.title} · ${Store.getAjustes().negocio}`;
     main.innerHTML = `<div class="view">${view.html}</div>`;
-    // En Inicio ya hay un botón grande para registrar; no repetirlo arriba
-    document.querySelector('.topbar__new').hidden = route === 'inicio';
     renderNav(route);
 
     if (sameRoute) {
@@ -88,11 +91,27 @@
     'enviar-seguimiento': (el) => {
       const s = Store.getServicio(el.dataset.id);
       const c = Store.getCliente(s.clienteId);
-      window.open(U.waLink(c.telefono, Store.mensajeSeguimiento(s)), '_blank', 'noopener');
+      // Si el mensaje se editó en pantalla, se envía exactamente ese texto
+      const caja = document.querySelector(`[data-msg="${s.id}"]`);
+      if (caja) {
+        if (!caja.value.trim()) {
+          UI.toast('El mensaje está vacío. Escriba algo o use “Volver al mensaje original”.', 'error');
+          caja.focus();
+          return;
+        }
+        Store.setMensajeSeguimiento(s.id, caja.value);
+      }
+      const texto = caja ? caja.value : Store.mensajeSeguimiento(s);
+      window.open(U.waLink(c.telefono, texto), '_blank', 'noopener');
       Store.marcarSeguimiento(s.id, 'enviado');
       UI.toast(`Mensaje para ${U.esc(c.nombre)} marcado como enviado`, 'ok', {
         actionText: 'Deshacer', duration: 6000, onAction: () => Store.marcarSeguimiento(s.id, 'pendiente'),
       });
+    },
+
+    'restaurar-mensaje': (el) => {
+      Store.setMensajeSeguimiento(el.dataset.id, '', false);
+      UI.toast('Se volvió a poner el mensaje original');
     },
 
     'omitir-seguimiento': async (el) => {
@@ -208,6 +227,15 @@
 
   // Búsqueda de clientes en vivo (sin redibujar toda la pantalla para no perder el cursor)
   document.addEventListener('input', (e) => {
+    // Mensaje de WhatsApp personalizado: se guarda solo mientras se escribe
+    const msgId = e.target.dataset?.msg;
+    if (msgId) {
+      Store.setMensajeSeguimiento(msgId, e.target.value);
+      const personalizado = !!Store.getServicio(msgId).mensajeSeguimiento;
+      document.querySelector(`[data-msg-status="${msgId}"]`).hidden = !personalizado;
+      document.querySelector(`[data-action="restaurar-mensaje"][data-id="${msgId}"]`).hidden = !personalizado;
+      return;
+    }
     if (e.target.id === 'buscar-clientes') {
       Views.ui.busqueda = e.target.value;
       document.getElementById('lista-clientes').innerHTML = Views.listaClientesHtml();

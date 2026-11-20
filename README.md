@@ -29,11 +29,10 @@ y abrir <http://localhost:8000>.
 | Pantalla | Para qué sirve |
 |---|---|
 | **Inicio** | Resumen del día: servicios de hoy, mensajes por enviar, próximos 7 días y avisos de servicios atrasados. Botones grandes para *Registrar cliente* y *Agendar servicio*. |
-| **Clientes** | Lista con buscador (nombre, teléfono o dirección) y filtros: *Todos*, *Con servicio agendado*, *Bloqueados*. Cada tarjeta muestra el **último comentario**. |
+| **Clientes** | Lista con buscador (nombre, teléfono o dirección), botón *Registrar cliente* y filtros: *Todos*, *Con servicio agendado* y *Bloqueados*. Cada tarjeta muestra el **último comentario** (o el **motivo del bloqueo**, si está bloqueado). |
 | **Ficha del cliente** | Datos, botones de *Llamar* y *WhatsApp*, próximo servicio, **comentario más reciente** (con botón *Ver todos*), historial de servicios y opciones de administrador (bloquear / eliminar). |
 | **Agenda** | Servicios pendientes con **datos del cliente, fecha y hora acordada**, agrupados en *Atrasados*, *Hoy*, *Mañana*, *Esta semana* y *Más adelante*. |
-| **Seguimiento** | Mensajes de WhatsApp que toca enviar hoy (o que ya se pasaron), próximos 30 días y enviados recientemente. |
-| **Bloqueados** | Clientes bloqueados con su motivo y botón para desbloquear. |
+| **Seguimiento** | Mensajes de WhatsApp que toca enviar hoy (o que ya se pasaron), con el **texto editable para cada cliente**; próximos 30 días y enviados recientemente. |
 | **Ajustes** | Nombre del negocio, texto de los mensajes de WhatsApp, respaldo (descargar/cargar) y datos de ejemplo. |
 
 ---
@@ -47,7 +46,7 @@ y abrir <http://localhost:8000>.
 | **Comentarios** del servicio o cliente (uno o más) | Se pueden agregar los que sean. Cada uno guarda fecha y hora. |
 | Ver **primero el más reciente** y poder ver **todos** | La ficha muestra el más reciente resaltado y un botón **“Ver todos los comentarios (N)”**. |
 | Seguimiento a los **15 días, 20 días o 1 mes** | Se elige al registrar/agendar. Cuando llega la fecha, el cliente aparece en **Seguimiento** y en el contador del menú. |
-| **Mensaje por WhatsApp** | Botón **“Enviar por WhatsApp”**: abre WhatsApp con el mensaje ya escrito y personalizado; solo se presiona *enviar*. Queda marcado como enviado (con opción de *Deshacer*). |
+| **Mensaje por WhatsApp** | En **Seguimiento** cada cliente tiene su mensaje en un cuadro de texto que **se puede cambiar** (se guarda solo y aplica únicamente a ese cliente; botón *Volver al mensaje original*). El botón **“Enviar por WhatsApp”** abre WhatsApp con ese texto; solo se presiona *enviar*. Queda marcado como enviado (con opción de *Deshacer*). |
 | Ver **servicios pendientes** con datos del cliente, **fecha y hora** | Pantalla **Agenda**. También se puede mandar un **recordatorio** por WhatsApp, marcar “Ya se hizo” o cambiar fecha/hora. |
 | **Bloquear** clientes malos o con comentario negativo | Botón *Bloquear cliente* (pide el motivo). Al escribir un **comentario negativo**, el sistema pregunta si también se quiere bloquear. Si alguien intenta registrarse con el teléfono de un bloqueado, aparece una **alerta roja**. |
 | Fácil de usar | Ver la sección de diseño. |
@@ -61,7 +60,8 @@ y abrir <http://localhost:8000>.
 - **Lenguaje sencillo** (“Ya se hizo”, “Recordarle”, “Todavía no”) y fechas legibles (“Hoy”, “Mañana”, “viernes 20 de noviembre”, “10:00 a. m.”).
 - **Confirmación** antes de acciones importantes, y **“Deshacer”** en las acciones rápidas.
 - **Errores claros** debajo de cada campo (“El teléfono debe tener 10 números”).
-- **Celular primero:** en el teléfono el menú pasa abajo (como una app) y aparece un botón flotante *Registrar cliente*.
+- **Sin elementos repetidos:** *Registrar cliente* solo aparece en Inicio y Clientes; los bloqueados se consultan con el filtro de Clientes.
+- **Celular primero:** en el teléfono el menú pasa abajo, como una app.
 - **Accesibilidad (WCAG 2.1 AA):** contraste revisado (texto ≥ 4.5:1, bordes de campos ≥ 3:1), navegación con teclado, foco visible, foco atrapado dentro de las ventanas, errores anunciados a lectores de pantalla.
 
 ---
@@ -93,7 +93,8 @@ Cliente    { id, nombre, apellido, telefono, direccion, fechaRegistro,
 Servicio   { id, clienteId, tipo, fecha, hora,
              estado: pendiente | realizado | cancelado,
              seguimientoDias: 15 | 20 | 30,
-             seguimiento: pendiente | enviado | omitido, fechaSeguimientoEnviado }
+             seguimiento: pendiente | enviado | omitido, fechaSeguimientoEnviado,
+             mensajeSeguimiento /* texto personalizado para ese cliente (opcional) */ }
 Comentario { id, clienteId, texto, fecha, negativo }
 ```
 

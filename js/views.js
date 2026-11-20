@@ -51,7 +51,7 @@ const Views = (() => {
               : C.empty('check', 'No hay servicios para hoy', 'Puede agendar uno con el botón “Agendar servicio”.'),
             { icon: 'clock' })}
           ${C.section('Mensajes de seguimiento por enviar', porEnviar.length,
-            porEnviar.length ? `<div class="stack">${porEnviar.slice(0, 3).map((x) => C.seguimientoCard(x)).join('')}</div>
+            porEnviar.length ? `<div class="stack">${porEnviar.slice(0, 3).map((x) => C.seguimientoCard(x, { editable: false })).join('')}</div>
               ${porEnviar.length > 3 ? `<a class="btn btn--soft btn--block" href="#/seguimiento">Ver los ${porEnviar.length} mensajes ${Icon('chevronRight')}</a>` : ''}`
               : C.empty('message', 'Todo al día', 'No hay mensajes de seguimiento pendientes hoy.'),
             { icon: 'whatsapp' })}
@@ -74,10 +74,14 @@ const Views = (() => {
         <div class="toolbar">
           <div class="search search--lg"><span class="search__icon">${Icon('search')}</span>
             <input id="buscar-clientes" type="search" placeholder="Buscar por nombre, teléfono o dirección" value="${esc(ui.busqueda)}" aria-label="Buscar cliente"></div>
+          <button class="btn btn--primary btn--lg toolbar__new" data-action="nuevo-cliente">${Icon('plus')} Registrar cliente</button>
+        </div>
+        <div class="toolbar toolbar--filters">
           <div class="segmented" role="group" aria-label="Mostrar">
             ${filtros.map(([k, l, n]) => `<button type="button" aria-pressed="${ui.filtroClientes === k}" data-action="filtro-clientes" data-filtro="${k}">${l} <span class="count">${n}</span></button>`).join('')}
           </div>
         </div>
+        ${ui.filtroClientes === 'bloqueados' ? `<div class="alert alert--info">${Icon('info')}<div>A los clientes bloqueados <strong>no se les pueden agendar servicios</strong> ni se les envían mensajes de seguimiento. Si alguien con su teléfono se vuelve a registrar, el sistema le avisará. Para desbloquear a alguien, entre a su ficha.</div></div>` : ''}
         <div id="lista-clientes" class="grid-cards">${listaClientesHtml()}</div>`,
     };
   }
@@ -98,7 +102,7 @@ const Views = (() => {
     list.sort((a, b) => Store.nombreCompleto(a).localeCompare(Store.nombreCompleto(b), 'es'));
     if (!list.length) {
       return q ? C.empty('search', 'No se encontró ningún cliente', `Revise cómo lo escribió o registre uno nuevo.`, `<button class="btn btn--primary btn--lg" data-action="nuevo-cliente">${Icon('plus')} Registrar cliente</button>`)
-        : ui.filtroClientes === 'bloqueados' ? C.empty('check', 'No hay clientes bloqueados', 'Qué bueno. 🙂')
+        : ui.filtroClientes === 'bloqueados' ? C.empty('check', 'No hay clientes bloqueados', 'Para bloquear a un cliente, entre a su ficha y use “Bloquear cliente”.')
           : C.empty('users', 'Todavía no hay clientes aquí', '', `<button class="btn btn--primary btn--lg" data-action="nuevo-cliente">${Icon('plus')} Registrar cliente</button>`);
     }
     return list.map(C.clienteCard).join('');
@@ -245,8 +249,8 @@ const Views = (() => {
       subtitle: 'Mensajes a clientes 15 días, 20 días o 1 mes después de su servicio',
       html: `
         <div class="alert alert--info">${Icon('info')}<div>
-          <strong>¿Cómo funciona?</strong> Toque <strong>“Enviar por WhatsApp”</strong>. Se abrirá WhatsApp con el mensaje ya escrito;
-          solo presione <strong>enviar</strong> ✈️. El sistema lo marca como enviado para que no se le olvide a quién ya le escribió.</div></div>
+          <strong>¿Cómo funciona?</strong> Revise el mensaje de cada cliente (puede cambiarlo si quiere) y toque <strong>“Enviar por WhatsApp”</strong>.
+          Se abrirá WhatsApp con ese mensaje ya escrito; solo presione <strong>enviar</strong> ✈️. El sistema lo marca como enviado para que no se le olvide a quién ya le escribió.</div></div>
         ${C.section('Por enviar hoy', porEnviar.length,
           porEnviar.length ? `<div class="stack">${porEnviar.map((x) => C.seguimientoCard(x)).join('')}</div>`
             : C.empty('check', '¡Todo al día!', 'No hay mensajes pendientes por enviar hoy.'),
@@ -259,37 +263,6 @@ const Views = (() => {
           enviados.length ? `<div class="grid-cards">${enviados.map((x) => C.seguimientoCard(x, { mode: 'enviado' })).join('')}</div>`
             : '<p class="muted">Aún no se ha enviado ningún mensaje.</p>',
           { icon: 'check' })}`,
-    };
-  }
-
-  /* ============================== BLOQUEADOS ============================== */
-  function bloqueados() {
-    const list = Store.getClientes().filter((c) => c.bloqueado)
-      .sort((a, b) => (b.fechaBloqueo || '').localeCompare(a.fechaBloqueo || ''));
-    return {
-      title: 'Clientes bloqueados',
-      subtitle: 'Clientes a los que ya no se les da servicio',
-      html: list.length ? `
-        <div class="alert alert--info">${Icon('info')}<div>A estos clientes <strong>no se les pueden agendar servicios</strong> ni se les envían mensajes de seguimiento. Si alguien con su teléfono se vuelve a registrar, el sistema le avisará.</div></div>
-        <div class="stack">${list.map((c) => {
-          const neg = Store.comentariosDe(c.id).filter((m) => m.negativo && !m.texto.startsWith('🚫'));
-          return `
-          <article class="card blocked-card">
-            <div class="blocked-card__head">
-              ${C.avatar(c)}
-              <div><a href="#/cliente/${c.id}" class="blocked-card__name">${esc(Store.nombreCompleto(c))}</a>
-                <p class="muted">${esc(U.phoneDisplay(c.telefono))} · ${esc(c.direccion)}</p></div>
-              ${C.badge(`Desde ${U.formatDateShort(c.fechaBloqueo)}`, 'danger', 'ban')}
-            </div>
-            <p class="blocked-card__reason"><strong>Motivo:</strong> ${esc(c.motivoBloqueo)}</p>
-            ${neg.length ? `<p class="muted">${U.plural(neg.length, 'comentario negativo', 'comentarios negativos')} en su historial.</p>` : ''}
-            <div class="btn-row">
-              <a class="btn btn--ghost" href="#/cliente/${c.id}">Ver cliente</a>
-              <button class="btn btn--soft" data-action="desbloquear" data-id="${c.id}">${Icon('unlock')} Desbloquear</button>
-            </div>
-          </article>`;
-        }).join('')}</div>`
-        : C.empty('check', 'No hay clientes bloqueados', 'Para bloquear a un cliente, entre a su ficha y use “Bloquear cliente”.'),
     };
   }
 
@@ -339,5 +312,5 @@ const Views = (() => {
     };
   }
 
-  return { inicio, clientes, listaClientesHtml, cliente, agenda, seguimiento, bloqueados, ajustes, ui };
+  return { inicio, clientes, listaClientesHtml, cliente, agenda, seguimiento, ajustes, ui };
 })();

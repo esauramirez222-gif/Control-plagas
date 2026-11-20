@@ -82,7 +82,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .topbar__title { font-size: 1.85rem; font-weight: 800; letter-spacing: -.01em; }
 .topbar__subtitle { color: var(--text-2); margin-top: 2px; }
 .topbar__actions { display: flex; align-items: center; gap: 10px; }
-.topbar__settings { display: none; }
+.topbar .topbar__settings { display: none; }
 
 /* ------------------------------ Botones ------------------------------ */
 .btn {
@@ -206,6 +206,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* ------------------------------ Clientes ------------------------------ */
 .toolbar { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin: 8px 0 20px; }
 .toolbar--end { justify-content: flex-end; margin-bottom: 0; }
+.toolbar--filters { margin-top: -6px; }
+.toolbar__new { flex: none; min-height: 56px; }
 .search { position: relative; flex: 1; min-width: 240px; }
 .search__icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--text-2); display: flex; }
 .search input { padding-left: 46px !important; }
@@ -425,19 +427,15 @@ code { background: var(--surface-2); border: 1px solid var(--border); padding: 1
   .nav__badge { position: absolute; top: 2px; right: calc(50% - 26px); margin: 0; min-width: 22px; height: 22px; font-size: .72rem; }
   .topbar { padding: 18px 16px 8px; align-items: flex-start; }
   .topbar__title { font-size: 1.5rem; }
-  .topbar__settings { display: inline-grid; }
-  .main { padding: 4px 16px 170px; }
+  .topbar .topbar__settings { display: inline-grid; }
+  .main { padding: 4px 16px 110px; }
   .quick-actions { grid-template-columns: 1fr; gap: 10px; }
   .big-action { padding: 16px 18px; }
   .grid-cards { grid-template-columns: minmax(0, 1fr); }
   .client-card__head { flex-wrap: wrap; }
   .client-card__head > .badge { order: 5; margin-left: 66px; }
   .segmented button { font-size: .9rem; }
-  /* Botón flotante para registrar cliente (en celular la barra superior es compacta) */
-  .topbar__new {
-    display: inline-flex; position: fixed; right: 16px; bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 35;
-    border-radius: 999px; box-shadow: 0 6px 20px rgba(13, 25, 19, .35); min-height: 56px;
-  }
+  .toolbar__new { width: 100%; }
   .grid-2 { grid-template-columns: 1fr; }
   .choice-cards { grid-template-columns: 1fr; }
   .choice-card > span { flex-direction: row; text-align: left; flex-wrap: wrap; column-gap: 12px; }
@@ -452,7 +450,7 @@ code { background: var(--surface-2); border: 1px solid var(--border); padding: 1
   .modal__footer .btn { flex: 1; }
   .segmented { width: 100%; }
   .segmented button { flex: 1; padding: 10px 8px; }
-  #toast-root { bottom: 150px; }
+  #toast-root { bottom: 96px; }
 }
 
 @media (max-width: 420px) {
@@ -470,3 +468,10 @@ code { background: var(--surface-2); border: 1px solid var(--border); padding: 1
   .nav, .topbar__actions, .btn, .btn-row, .comment-form { display: none !important; }
   .main { padding: 0; }
 }
+
+/* Editor del mensaje de WhatsApp en cada seguimiento */
+.followup-card__msg { margin-top: 14px; padding: 14px; background: var(--wa-soft); border-radius: var(--radius-sm); }
+.followup-card__msg-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+.followup-card__msg label { font-weight: 700; color: var(--wa); display: flex; align-items: center; gap: 8px; }
+.followup-card__msg textarea { background: var(--surface); font-size: 1rem; line-height: 1.5; }
+.followup-card__msg .btn { margin-top: 8px; }
