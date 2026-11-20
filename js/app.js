@@ -4,9 +4,47 @@
   const NAV = [
     { route: 'inicio', label: 'Inicio', icon: 'home' },
     { route: 'clientes', label: 'Clientes', icon: 'users' },
-    { route: 'agenda', label: 'Agenda', icon: 'calendar', badge: () => Store.pendientes().filter((s) => s.fecha <= U.todayStr()).length },
-    { route: 'seguimiento', label: 'Seguimiento', icon: 'whatsapp', badge: () => Store.seguimientosPorEnviar().length },
+    {
+      route: 'agenda', label: 'Agenda', icon: 'calendar',
+      badge: () => Store.pendientes().filter((s) => s.fecha <= U.todayStr()).length,
+      alert: () => Store.pendientes().some((s) => s.fecha < U.todayStr()),
+      badgeLabel: 'servicios para hoy o atrasados',
+    },
+    { route: 'seguimiento', label: 'Seguimiento', icon: 'whatsapp', badge: () => Store.seguimientosPorEnviar().length, badgeLabel: 'mensajes por enviar' },
+    { route: 'negocio', label: 'Negocio', icon: 'chart' },
   ];
+  const reduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /** Cambia la pantalla con una transición suave (View Transitions) cuando el navegador la soporta. */
+  function transicion(fn, tipo = 'page') {
+    if (!document.startViewTransition || reduceMotion() || document.hidden) { fn(); return; }
+    // A prueba de fallos: si el navegador no ejecuta la transición pronto, la pantalla se actualiza igual
+    let hecho = false;
+    const run = () => { if (!hecho) { hecho = true; fn(); } };
+    document.documentElement.dataset.vt = tipo;
+    const t = document.startViewTransition(run);
+    setTimeout(run, 250);
+    t.finished.catch(() => {}).finally(() => { delete document.documentElement.dataset.vt; });
+  }
+
+  /** Números que suben al entrar a una pantalla (una sola vez, no en cada redibujo). */
+  function countUp(root) {
+    if (reduceMotion()) return;
+    const fmt = { money: U.money, pct: (n) => `${Math.round(n)}%`, int: (n) => String(Math.round(n)) };
+    root.querySelectorAll('[data-countup]').forEach((el) => {
+      const fin = Number(el.dataset.countup);
+      const f = fmt[el.dataset.fmt] || fmt.int;
+      if (!(fin > 0)) return;
+      const t0 = performance.now();
+      const dur = 700;
+      const step = (t) => {
+        const k = Math.min(1, (t - t0) / dur);
+        el.textContent = f(fin * (1 - (1 - k) ** 3));
+        if (k < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    });
+  }
 
   /* ---------- Navegación ---------- */
   const parseRoute = () => {
@@ -18,8 +56,9 @@
     const navActive = active === 'cliente' ? 'clientes' : active;
     document.getElementById('nav-list').innerHTML = NAV.map((n) => {
       const b = n.badge ? n.badge() : 0;
+      const alerta = n.alert ? n.alert() : false;
       return `<li><a href="#/${n.route}" class="nav__link ${navActive === n.route ? 'is-active' : ''}" ${navActive === n.route ? 'aria-current="page"' : ''}>
-        ${Icon(n.icon)}<span>${n.label}</span>${b ? `<span class="nav__badge" aria-label="${b} pendientes">${b}</span>` : ''}</a></li>`;
+        ${Icon(n.icon)}<span>${n.label}</span>${b ? `<span class="nav__badge ${alerta ? 'nav__badge--alert' : ''}" aria-label="${b} ${n.badgeLabel}">${b}</span>` : ''}</a></li>`;
     }).join('');
     const s = document.querySelector('.nav__settings');
     s.className = `nav__settings nav__link ${active === 'ajustes' ? 'is-active' : ''}`;
@@ -28,7 +67,15 @@
   }
 
   let lastRouteKey = '';
+  /** Redibuja. Al cambiar de pantalla lo hace con transición; al actualizar datos, en el lugar. */
   function render() {
+    const { route, param } = parseRoute();
+    const key = `${route}/${param || ''}`;
+    if (key !== lastRouteKey && lastRouteKey) transicion(pintar);
+    else pintar();
+  }
+
+  function pintar() {
     const { route, param } = parseRoute();
     // Los bloqueados viven dentro de Clientes (filtro “Bloqueados”); se respeta el enlace antiguo
     if (route === 'bloqueados') {
@@ -38,7 +85,7 @@
     }
     const views = {
       inicio: Views.inicio, clientes: Views.clientes, agenda: Views.agenda, seguimiento: Views.seguimiento,
-      ajustes: Views.ajustes, cliente: () => Views.cliente(param),
+      ajustes: Views.ajustes, negocio: Views.negocio, cliente: () => Views.cliente(param),
     };
     const view = (views[route] || Views.inicio)();
     const key = `${route}/${param || ''}`;
@@ -50,9 +97,22 @@
 
     document.getElementById('page-title').textContent = view.title;
     document.getElementById('page-subtitle').textContent = view.subtitle || '';
+    // Enlace para regresar (arriba del título, donde la gente lo busca)
+    const back = document.getElementById('page-back');
+    back.hidden = !view.back;
+    if (view.back) { back.href = view.back.href; back.innerHTML = `${Icon('chevronLeft')} ${view.back.label}`; }
+    document.getElementById('page-actions').innerHTML = view.actions || '';
     document.title = `${view.title} · ${Store.getAjustes().negocio}`;
     main.innerHTML = `<div class="view">${view.html}</div>`;
+    hydrateIcons(main);
     renderNav(route);
+    // Las animaciones de entrada (gráficas que crecen, números que suben) solo al llegar a la pantalla
+    if (!sameRoute) {
+      main.dataset.enter = '1';
+      countUp(main);
+      clearTimeout(pintar.t);
+      pintar.t = setTimeout(() => delete main.dataset.enter, 1400);
+    }
 
     if (sameRoute) {
       window.scrollTo(0, scroll);
@@ -71,21 +131,24 @@
   const actions = {
     'nuevo-cliente': () => Forms.cliente(),
     'editar-cliente': (el) => Forms.cliente(el.dataset.id),
-    'agendar-servicio': (el) => Forms.servicio({ clienteId: el.dataset.cliente || null }),
+    'agendar-servicio': (el) => Forms.servicio({ clienteId: el.dataset.cliente || null, fecha: el.dataset.fecha || null }),
     'editar-servicio': (el) => Forms.servicio({ servicioId: el.dataset.id }),
 
+    // Se marca al instante (es algo que se hace muchas veces al día) y se ofrece “Deshacer”.
     'servicio-realizado': async (el) => {
       const s = Store.getServicio(el.dataset.id);
+      // La fila se despide con una animación corta; el dato se guarda pase lo que pase con la animación
+      const fila = el.closest('.svc');
+      if (fila && !reduceMotion() && fila.animate) {
+        const a = fila.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateX(24px)' }], { duration: 220, easing: 'cubic-bezier(.4,0,.2,1)', fill: 'forwards' });
+        await Promise.race([a.finished, new Promise((r) => setTimeout(r, 260))]);
+      }
       const c = Store.getCliente(s.clienteId);
-      const plazo = s.seguimientoDias === 30 ? '1 mes' : `${s.seguimientoDias} días`;
-      const ok = await UI.confirm({
-        title: '¿Ya se hizo el servicio?',
-        message: `Se marcará como <strong>realizado</strong> el servicio de <strong>${U.esc(s.tipo)}</strong> de <strong>${U.esc(Store.nombreCompleto(c))}</strong>.<br><br>En <strong>${plazo}</strong> el sistema le recordará enviarle el mensaje de seguimiento.`,
-        okText: 'Sí, ya se hizo',
+      const antes = Store.marcarRealizado(s.id);
+      const seg = U.formatDateShort(Store.fechaSeguimiento(Store.getServicio(s.id)));
+      UI.toast(`Servicio de ${U.esc(c.nombre)} marcado como hecho. Seguimiento por WhatsApp el ${seg}.`, 'ok', {
+        actionText: 'Deshacer', duration: 8000, onAction: () => Store.updateServicio(s.id, antes),
       });
-      if (!ok) return;
-      Store.marcarRealizado(s.id);
-      UI.toast('Servicio marcado como hecho. ¡Buen trabajo!');
     },
 
     'enviar-seguimiento': (el) => {
@@ -102,11 +165,31 @@
         Store.setMensajeSeguimiento(s.id, caja.value);
       }
       const texto = caja ? caja.value : Store.mensajeSeguimiento(s);
-      window.open(U.waLink(c.telefono, texto), '_blank', 'noopener');
-      Store.marcarSeguimiento(s.id, 'enviado');
-      UI.toast(`Mensaje para ${U.esc(c.nombre)} marcado como enviado`, 'ok', {
-        actionText: 'Deshacer', duration: 6000, onAction: () => Store.marcarSeguimiento(s.id, 'pendiente'),
-      });
+      const w = window.open(U.waLink(c.telefono, texto), '_blank');
+      if (!w) {
+        UI.toast('No se pudo abrir WhatsApp. Revise que el navegador permita abrir ventanas nuevas.', 'error', { duration: 6000 });
+        return;
+      }
+      w.opener = null;
+      // No se marca como enviado hasta que la persona confirme al regresar a esta pantalla
+      envioPendiente = { id: s.id, nombre: Store.nombreCompleto(c) };
+    },
+
+    'editar-mensaje': (el) => {
+      const id = el.dataset.id;
+      Views.ui.editMsg[id] = !Views.ui.editMsg[id];
+      render();
+      if (Views.ui.editMsg[id]) {
+        const t = document.querySelector(`[data-msg="${id}"]`);
+        t?.focus();
+        t?.setSelectionRange(t.value.length, t.value.length);
+      }
+    },
+
+    'ocultar-ayuda': () => {
+      Views.ui.ayudaSeguimientoOculta = true;
+      Views.pref.set('ayudaSeguimiento', 'oculta');
+      render();
     },
 
     'restaurar-mensaje': (el) => {
@@ -144,6 +227,10 @@
       UI.toast('Cliente eliminado', 'info');
     },
 
+    'toggle-historial': (el) => {
+      Views.ui.verHistorial[el.dataset.id] = !Views.ui.verHistorial[el.dataset.id];
+      render();
+    },
     'toggle-comentarios': (el) => {
       Views.ui.verTodosComentarios[el.dataset.id] = !Views.ui.verTodosComentarios[el.dataset.id];
       render();
@@ -153,6 +240,45 @@
       if (!ok) return;
       Store.deleteComentario(el.dataset.id);
       UI.toast('Comentario borrado', 'info');
+    },
+
+    'agenda-vista': (el) => {
+      Views.ui.agendaVista = el.dataset.vista;
+      Views.pref.set('agendaVista', el.dataset.vista);
+      transicion(pintar, 'swap');
+    },
+    'cal-mes': (el) => {
+      const d = Number(el.dataset.delta);
+      Views.ui.calMes = U.addMonths(Views.ui.calMes, d);
+      transicion(pintar, d > 0 ? 'next' : 'prev');
+    },
+    'cal-hoy': () => {
+      Views.ui.calMes = U.monthKey(U.todayStr());
+      Views.ui.calDia = U.todayStr();
+      transicion(pintar, 'swap');
+    },
+    'cal-dia': (el) => {
+      Views.ui.calDia = el.dataset.fecha;
+      if (U.monthKey(el.dataset.fecha) !== Views.ui.calMes) Views.ui.calMes = U.monthKey(el.dataset.fecha);
+      transicion(pintar, 'day');
+    },
+    // Desde la gráfica de “Próximos 7 días”: abrir ese día en el calendario
+    'ir-dia': (el) => {
+      Views.ui.agendaVista = 'calendario';
+      Views.ui.calDia = el.dataset.key;
+      Views.ui.calMes = U.monthKey(el.dataset.key);
+      location.hash = '#/agenda';
+    },
+    'seg-sel': (el) => {
+      Views.ui.segSel = el.dataset.id;
+      transicion(pintar, 'day');
+      if (window.matchMedia('(max-width: 820px)').matches) document.querySelector('.inbox__detail')?.scrollIntoView({ behavior: reduceMotion() ? 'auto' : 'smooth', block: 'start' });
+    },
+    periodo: (el) => {
+      Views.ui.periodo = Number(el.dataset.n);
+      transicion(pintar, 'swap');
+      main.dataset.enter = '1';
+      setTimeout(() => delete main.dataset.enter, 1400);
     },
 
     'filtro-clientes': (el) => {
@@ -167,7 +293,19 @@
       a.download = `respaldo-clientes-${U.todayStr()}.json`;
       a.click();
       URL.revokeObjectURL(a.href);
-      UI.toast('Respaldo descargado');
+      Views.pref.set('ultimoRespaldo', U.todayStr());
+      UI.toast('Respaldo descargado. Guárdelo en un lugar seguro (USB, correo o Drive).', 'ok', { duration: 5000 });
+      render();
+    },
+    // Ajustes: agrega un dato ({nombre}, {fecha}…) donde está el cursor del mensaje
+    'insertar-var': (el) => {
+      const t = document.getElementById(el.dataset.target);
+      if (!t) return;
+      const ini = t.selectionStart ?? t.value.length;
+      const fin = t.selectionEnd ?? t.value.length;
+      t.setRangeText(`{${el.dataset.var}}`, ini, fin, 'end');
+      t.focus();
+      t.dispatchEvent(new Event('input', { bubbles: true }));
     },
     'restaurar-mensajes': () => {
       const { plantillaSeguimiento, plantillaRecordatorio } = Store.DEFAULT_AJUSTES;
@@ -187,6 +325,33 @@
       UI.toast('Se borró toda la información', 'info');
     },
   };
+
+  /* ---------- Confirmar envío de WhatsApp al regresar a la app ---------- */
+  let envioPendiente = null;
+  let preguntando = false;
+  async function preguntarEnvio() {
+    if (!envioPendiente || preguntando || document.visibilityState !== 'visible') return;
+    const { id, nombre } = envioPendiente;
+    envioPendiente = null;
+    preguntando = true;
+    const ok = await UI.confirm({
+      title: '¿Se envió el mensaje?',
+      message: `¿Alcanzó a enviar el mensaje de WhatsApp a <strong>${U.esc(nombre)}</strong>?`,
+      okText: 'Sí, se envió', cancelText: 'No, todavía no',
+    });
+    preguntando = false;
+    if (ok) {
+      Store.marcarSeguimiento(id, 'enviado');
+      delete Views.ui.editMsg[id];
+      UI.toast(`Mensaje a ${U.esc(nombre)} marcado como enviado`, 'ok', {
+        actionText: 'Deshacer', duration: 6000, onAction: () => Store.marcarSeguimiento(id, 'pendiente'),
+      });
+    } else {
+      UI.toast('Se queda en la lista de mensajes por enviar', 'info');
+    }
+  }
+  window.addEventListener('focus', () => setTimeout(preguntarEnvio, 300));
+  document.addEventListener('visibilitychange', () => setTimeout(preguntarEnvio, 300));
 
   document.addEventListener('click', (e) => {
     const el = e.target.closest('[data-action]');
@@ -218,22 +383,46 @@
       e.preventDefault();
       const fd = new FormData(form);
       Store.setAjustes({
-        negocio: (fd.get('negocio') || '').trim() || 'Control de Plagas',
+        negocio: (fd.get('negocio') || '').trim() || Store.DEFAULT_AJUSTES.negocio,
+        ciudad: (fd.get('ciudad') || '').trim(),
         plantillaSeguimiento: fd.get('plantillaSeguimiento'), plantillaRecordatorio: fd.get('plantillaRecordatorio'),
       });
       UI.toast('Ajustes guardados');
     }
   });
 
+  /** Ajustes: se guardan solos mientras se escribe (sin redibujar, para no perder el cursor). */
+  function guardarAjuste(el) {
+    let v = el.value;
+    if (el.name === 'negocio') v = v.trim() || Store.DEFAULT_AJUSTES.negocio;
+    if (el.name === 'ciudad') v = v.trim();
+    Store.setAjustes({ [el.name]: v }, true);
+    if (el.name === 'negocio') document.getElementById('brand-name').textContent = v;
+    const sub = document.getElementById('page-subtitle');
+    sub.textContent = 'Cambios guardados';
+    sub.classList.add('is-saved');
+    clearTimeout(guardarAjuste.t2);
+    guardarAjuste.t2 = setTimeout(() => { sub.textContent = 'Los cambios se guardan solos'; sub.classList.remove('is-saved'); }, 2000);
+  }
+
   // Búsqueda de clientes en vivo (sin redibujar toda la pantalla para no perder el cursor)
   document.addEventListener('input', (e) => {
+    if (e.target.closest?.('#form-ajustes') && e.target.name) {
+      if (e.target.dataset.preview) document.getElementById(e.target.dataset.preview).innerHTML = Views.vistaPrevia(e.target.value);
+      clearTimeout(guardarAjuste.t);
+      const el = e.target;
+      guardarAjuste.t = setTimeout(() => guardarAjuste(el), 450);
+      return;
+    }
     // Mensaje de WhatsApp personalizado: se guarda solo mientras se escribe
     const msgId = e.target.dataset?.msg;
     if (msgId) {
       Store.setMensajeSeguimiento(msgId, e.target.value);
       const personalizado = !!Store.getServicio(msgId).mensajeSeguimiento;
-      document.querySelector(`[data-msg-status="${msgId}"]`).hidden = !personalizado;
-      document.querySelector(`[data-action="restaurar-mensaje"][data-id="${msgId}"]`).hidden = !personalizado;
+      const estado = document.querySelector(`[data-msg-status="${msgId}"]`);
+      const restaurar = document.querySelector(`[data-action="restaurar-mensaje"][data-id="${msgId}"]`);
+      if (estado) estado.hidden = !personalizado;
+      if (restaurar) restaurar.hidden = !personalizado;
       return;
     }
     if (e.target.id === 'buscar-clientes') {
@@ -259,7 +448,8 @@
 
   /* ---------- Inicio ---------- */
   hydrateIcons(document);
-  if (!Store.load()) Store.replaceAll(buildDemoData()); // primera vez: cargar demo
+  Charts.init();
+  if (!Store.load() || Store.esDemoAntigua()) Store.replaceAll(buildDemoData()); // primera vez (o demo sin precios): cargar demo
   if (!location.hash) location.hash = '#/inicio';
   render();
 })();

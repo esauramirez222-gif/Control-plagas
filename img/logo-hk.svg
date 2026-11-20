@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="240 95 735 705" role="img" aria-label="HK Control de Plagas">
+  <!-- Trazo provisional del logotipo a partir del PNG. Reemplazar por el SVG oficial cuando se tenga. -->
+  <g fill="#0F3F6E">
+    <path d="M390 270c0-42 40-66 88-66s88 24 88 66z"/>
+    <rect x="252" y="350" width="150" height="440"/>
+    <path d="M600 350h105v440H555V395a45 45 0 0 1 45-45z"/>
+  </g>
+  <g fill="none" stroke="#0F3F6E" stroke-linecap="round">
+    <path stroke-width="14" d="M455 208c3-43-15-83-55-96-35-10-65 13-68 46"/>
+    <path stroke-width="14" d="M513 208c-1-48 27-83 67-90 32-5 52 17 52 47"/>
+    <!-- travesaño de la H: grueso para que se lea "HK" también en tamaño pequeño -->
+    <path stroke-width="34" stroke-linecap="butt" d="M402 560c18 42 48 79 78 79 32 0 60-37 75-79"/>
+  </g>
+  <path fill="#4A5A6E" d="M705 515 868 358q8-8 20-8h57q20 2 7 20L762 568l190 202q13 18-7 20h-60q-13 0-21-8L705 625z"/>
+</svg>

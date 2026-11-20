@@ -4,23 +4,40 @@
      Cliente    { id, nombre, apellido, telefono, direccion, fechaRegistro,
                   bloqueado, motivoBloqueo, fechaBloqueo }
      Servicio   { id, clienteId, tipo, fecha, hora, estado: pendiente|realizado|cancelado,
+                  precio (pesos; opcional: lo cobrado o lo acordado),
                   seguimientoDias: 15|20|30, seguimiento: pendiente|enviado|omitido,
                   fechaSeguimientoEnviado }
+     Ajustes    { negocio, ciudad (se agrega a las direcciones para el mapa), plantillas }
      Comentario { id, clienteId, texto, fecha (ISO), negativo }
    ===================================================================== */
 const Store = (() => {
   const KEY = 'controlPlagas.v1';
 
   const DEFAULT_AJUSTES = {
-    negocio: 'Control de Plagas',
+    negocio: 'HK Control de Plagas',
+    ciudad: 'San Luis Potosí, S.L.P.',
     plantillaSeguimiento:
-      'Hola {nombre}, le saluda {negocio}. 🐜\n\nHace {dias} días realizamos su servicio de {servicio}. ¿Cómo ha funcionado? ¿Ha vuelto a ver plagas?\n\nSi gusta, con gusto le agendamos su siguiente servicio. ¡Gracias por su confianza!',
+      'Hola {nombre}, le saluda {negocio}.\n\nHace {dias} días realizamos su servicio de {servicio}. ¿Cómo ha funcionado? ¿Ha vuelto a ver plagas?\n\nSi gusta, con gusto le agendamos su siguiente servicio. ¡Gracias por su confianza!',
     plantillaRecordatorio:
-      'Hola {nombre}, le saluda {negocio}. 🐜\n\nLe recordamos su servicio de {servicio} programado para el {fecha} a las {hora} en {direccion}.\n\nSi necesita cambiar la hora, por favor avísenos. ¡Gracias!',
+      'Hola {nombre}, le saluda {negocio}.\n\nLe recordamos su servicio de {servicio} programado para el {fecha} a las {hora} en {direccion}.\n\nSi necesita cambiar la hora, por favor avísenos. ¡Gracias!',
   };
 
   let data = { clientes: [], servicios: [], comentarios: [], ajustes: { ...DEFAULT_AJUSTES } };
   const listeners = new Set();
+
+  /** Actualiza datos guardados con versiones anteriores (plantillas con emoji, nombre de la demo, etc.). */
+  function migrar() {
+    const a = data.ajustes;
+    ['plantillaSeguimiento', 'plantillaRecordatorio'].forEach((k) => {
+      if (typeof a[k] === 'string') a[k] = a[k].replace(/ ?🐜/g, '');
+    });
+    if (!a.negocio || a.negocio === 'Control de Plagas' || a.negocio === 'Fumigaciones El Escudo') a.negocio = DEFAULT_AJUSTES.negocio;
+    // La ciudad por defecto de una versión anterior era un supuesto equivocado (Guadalajara)
+    if (!a.ciudad || a.ciudad === 'Guadalajara, Jalisco') a.ciudad = DEFAULT_AJUSTES.ciudad;
+    data.comentarios.forEach((m) => {
+      if (typeof m.texto === 'string') m.texto = m.texto.replace(/^(🚫|✅)\s*/u, '');
+    });
+  }
 
   function load() {
     try {
@@ -28,6 +45,7 @@ const Store = (() => {
       if (raw) {
         const parsed = JSON.parse(raw);
         data = { ...data, ...parsed, ajustes: { ...DEFAULT_AJUSTES, ...(parsed.ajustes || {}) } };
+        migrar();
         return true;
       }
     } catch (e) {
@@ -50,6 +68,11 @@ const Store = (() => {
 
   /* ------------------------------ Clientes ------------------------------ */
   const nombreCompleto = (c) => `${c.nombre} ${c.apellido}`.trim();
+  /** Dirección + ciudad del negocio, para que el mapa la encuentre sin confundirse de ciudad. */
+  const direccionMapa = (dir) => {
+    const ciudad = (data.ajustes.ciudad || '').trim();
+    return ciudad && !U.norm(dir).includes(U.norm(ciudad.split(',')[0])) ? `${dir}, ${ciudad}` : dir;
+  };
   const getClientes = () => data.clientes;
   const getCliente = (id) => data.clientes.find((c) => c.id === id);
   const buscarPorTelefono = (tel, excludeId) => {
@@ -90,7 +113,7 @@ const Store = (() => {
     c.motivoBloqueo = motivo.trim();
     c.fechaBloqueo = U.todayStr();
     // El motivo también queda en el historial de comentarios
-    data.comentarios.push({ id: U.uid(), clienteId: id, texto: `🚫 Cliente bloqueado. Motivo: ${c.motivoBloqueo}`, fecha: new Date().toISOString(), negativo: true });
+    data.comentarios.push({ id: U.uid(), clienteId: id, texto: `Cliente bloqueado. Motivo: ${c.motivoBloqueo}`, fecha: new Date().toISOString(), negativo: true });
     // Los servicios pendientes de un cliente bloqueado se cancelan
     data.servicios.forEach((s) => {
       if (s.clienteId === id && s.estado === 'pendiente') s.estado = 'cancelado';
@@ -102,7 +125,7 @@ const Store = (() => {
     const c = getCliente(id);
     if (!c) return;
     c.bloqueado = false;
-    data.comentarios.push({ id: U.uid(), clienteId: id, texto: '✅ Cliente desbloqueado.', fecha: new Date().toISOString(), negativo: false });
+    data.comentarios.push({ id: U.uid(), clienteId: id, texto: 'Cliente desbloqueado.', fecha: new Date().toISOString(), negativo: false });
     c.motivoBloqueo = '';
     c.fechaBloqueo = null;
     save();
@@ -110,13 +133,19 @@ const Store = (() => {
 
   /* ------------------------------ Servicios ------------------------------ */
   const getServicio = (id) => data.servicios.find((s) => s.id === id);
+  const getServicios = () => data.servicios;
+  /** Precio de referencia por tipo de servicio: el promedio de lo que se ha cobrado. */
+  function precioSugerido(tipo) {
+    const ps = data.servicios.filter((s) => s.tipo === tipo && s.precio > 0).map((s) => s.precio);
+    return ps.length ? Math.round(ps.reduce((a, b) => a + b, 0) / ps.length / 50) * 50 : null;
+  }
   const sortServ = (a, b) => (a.fecha + (a.hora || '')).localeCompare(b.fecha + (b.hora || ''));
 
   const serviciosDe = (clienteId) => data.servicios.filter((s) => s.clienteId === clienteId).sort(sortServ).reverse();
 
-  function addServicio({ clienteId, tipo, fecha, hora = '', estado, seguimientoDias }) {
+  function addServicio({ clienteId, tipo, fecha, hora = '', estado, seguimientoDias, precio = null }) {
     const s = {
-      id: U.uid(), clienteId, tipo: tipo || 'Fumigación general', fecha, hora, estado,
+      id: U.uid(), clienteId, tipo: tipo || 'Fumigación general', fecha, hora, estado, precio: precio > 0 ? Number(precio) : null,
       seguimientoDias: Number(seguimientoDias) || 30, seguimiento: 'pendiente', fechaSeguimientoEnviado: null,
     };
     data.servicios.push(s);
@@ -131,14 +160,17 @@ const Store = (() => {
     save();
   }
 
+  /** Marca el servicio como hecho. Devuelve el estado anterior para poder deshacer. */
   function marcarRealizado(id) {
     const s = getServicio(id);
-    if (!s) return;
+    if (!s) return null;
+    const antes = { estado: s.estado, fecha: s.fecha, seguimiento: s.seguimiento };
     s.estado = 'realizado';
     // Si se hizo antes de lo agendado, la fecha real es hoy (de ahí se cuenta el seguimiento)
     if (U.diffDays(U.todayStr(), s.fecha) > 0) s.fecha = U.todayStr();
     s.seguimiento = 'pendiente';
     save();
+    return antes;
   }
 
   /** Servicios agendados que aún no se hacen, ordenados por fecha y hora. */
@@ -234,10 +266,13 @@ const Store = (() => {
 
   /* ------------------------------ Ajustes y respaldo ------------------------------ */
   const getAjustes = () => data.ajustes;
-  function setAjustes(patch) {
+  /** Con silent=true guarda sin redibujar (para guardar mientras se escribe). */
+  function setAjustes(patch, silent = false) {
     Object.assign(data.ajustes, patch);
-    save();
+    save(silent);
   }
+  /** ¿Son los datos de ejemplo? (para no pedir respaldo de la demo) */
+  const esDemo = () => data.demo === 2;
 
   const exportJSON = () => JSON.stringify({ app: 'control-plagas', version: 1, exportado: new Date().toISOString(), ...data }, null, 2);
 
@@ -249,6 +284,7 @@ const Store = (() => {
     data = {
       clientes: parsed.clientes, servicios: parsed.servicios, comentarios: parsed.comentarios,
       ajustes: { ...DEFAULT_AJUSTES, ...(parsed.ajustes || {}) },
+      demo: parsed.demo || 'importado', // un respaldo nunca se reemplaza por la demo
     };
     save();
   }
@@ -258,17 +294,20 @@ const Store = (() => {
     save();
   }
 
+  /** ¿Son los datos de ejemplo de una versión anterior (sin precios)? Entonces conviene recargarlos. */
+  const esDemoAntigua = () => data.clientes.some((c) => c.id === 'c01') && data.servicios.some((s) => s.id === 's1') && !data.demo;
+
   function clearAll() {
     data = { clientes: [], servicios: [], comentarios: [], ajustes: { ...data.ajustes } };
     save();
   }
 
   return {
-    load, save, onChange, nombreCompleto, getClientes, getCliente, buscarPorTelefono, addCliente, updateCliente,
+    load, save, onChange, nombreCompleto, direccionMapa, getServicios, precioSugerido, getClientes, getCliente, buscarPorTelefono, addCliente, updateCliente,
     deleteCliente, bloquear, desbloquear, getServicio, serviciosDe, addServicio, updateServicio, marcarRealizado,
     pendientes, proximoServicio, ultimoRealizado, fechaSeguimiento, seguimientos, seguimientosPorEnviar,
     seguimientosProximos, seguimientosEnviados, marcarSeguimiento, comentariosDe, ultimoComentario, addComentario,
     deleteComentario, mensajeSeguimiento, mensajeSeguimientoOriginal, setMensajeSeguimiento, mensajeRecordatorio, getAjustes, setAjustes, exportJSON, importJSON,
-    replaceAll, clearAll, DEFAULT_AJUSTES,
+    replaceAll, clearAll, esDemoAntigua, esDemo, DEFAULT_AJUSTES,
   };
 })();

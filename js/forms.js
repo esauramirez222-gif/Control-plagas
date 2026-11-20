@@ -11,6 +11,47 @@ const Forms = (() => {
       <select id="f-tipo" name="tipo">${TIPOS.map((t) => `<option ${t === sel ? 'selected' : ''}>${t}</option>`).join('')}</select>
     </div>`;
 
+  /** Precio del servicio (opcional). El sugerido sale del promedio de lo cobrado por ese tipo de servicio. */
+  const precioField = (val = '') => `
+    <div class="field"><label for="f-precio">Precio del servicio <span class="muted">(opcional)</span></label>
+      <div class="money-input"><span aria-hidden="true">$</span>
+        <input id="f-precio" name="precio" type="number" inputmode="numeric" min="0" step="50" value="${val ?? ''}"></div>
+      <p class="hint hint--below" data-sugerido></p></div>`;
+
+  /** Cambia el precio sugerido cuando se elige otro tipo de servicio. */
+  function wirePrecio(form) {
+    const tipo = form.querySelector('[name=tipo]');
+    const input = form.querySelector('[name=precio]');
+    const hint = form.querySelector('[data-sugerido]');
+    const update = () => {
+      const sug = Store.precioSugerido(tipo.value);
+      input.placeholder = sug ? String(sug) : 'Ej. 650';
+      hint.innerHTML = sug ? `Normalmente se cobra <strong class="num">${U.money(sug)}</strong> por ${esc(tipo.value.toLowerCase())}. <button type="button" class="link-btn" data-usar-precio="${sug}">Usar este precio</button>` : '';
+    };
+    tipo.addEventListener('change', update);
+    form.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-usar-precio]');
+      if (b) { input.value = b.dataset.usarPrecio; input.focus(); }
+    });
+    update();
+  }
+
+  /** Vista previa del mapa mientras se escribe la dirección. */
+  function wireMapa(form) {
+    const dir = form.querySelector('[name=direccion]');
+    const box = form.querySelector('#map-prev');
+    let t;
+    const update = () => {
+      const v = dir.value.trim();
+      box.innerHTML = v.length >= 8 ? `${C.mapa(v, { alto: 190 })}
+        <p class="hint hint--below">Se busca en el mapa como: <strong>${esc(Store.direccionMapa(v))}</strong>.
+        Revise que el punto sea el correcto. Si el cliente está en otro municipio, escríbalo al final de la dirección.
+        La ciudad se cambia en <a href="#/ajustes" data-close>Ajustes</a>.</p>` : '';
+    };
+    dir.addEventListener('input', () => { clearTimeout(t); t = setTimeout(update, 900); });
+    update();
+  }
+
   const seguimientoRadios = (val = 30) => `
     <fieldset class="field">
       <legend>¿En cuánto tiempo se le manda mensaje de seguimiento?</legend>
@@ -22,7 +63,7 @@ const Forms = (() => {
     </fieldset>`;
 
   /** Pregunta clave: ¿el servicio fue hoy, otro día, o se va a agendar? */
-  const cuandoFieldset = (def = 'hoy', step = '') => `
+  const cuandoFieldset = (def = 'hoy', step = '', fechaAg = U.addDays(U.todayStr(), 1)) => `
     <fieldset class="field">
       <legend>${step}¿Cuándo es o fue el servicio?</legend>
       <div class="choice-cards">
@@ -39,7 +80,7 @@ const Forms = (() => {
       </div>
       <div class="cuando-extra grid-2" data-show="agendar">
         <div class="field"><label for="f-fecha-ag">¿Qué día?</label>
-          <input type="date" id="f-fecha-ag" name="fechaAgendar" min="${U.todayStr()}" value="${U.addDays(U.todayStr(), 1)}"></div>
+          <input type="date" id="f-fecha-ag" name="fechaAgendar" min="${U.todayStr()}" value="${fechaAg}"></div>
         <div class="field"><label for="f-hora">¿A qué hora se acordó?</label>
           <input type="time" id="f-hora" name="hora" value="10:00"></div>
       </div>
@@ -90,14 +131,15 @@ const Forms = (() => {
               <input id="f-apellido" name="apellido" autocomplete="off" placeholder="Ej. González Pérez" value="${esc(c?.apellido)}"></div>
           </div>
           <div class="field"><label for="f-tel">Teléfono (WhatsApp)</label>
-            <input id="f-tel" name="telefono" type="tel" inputmode="numeric" autocomplete="off" placeholder="10 dígitos, ej. 33 1234 5678" value="${esc(c ? U.phoneDisplay(c.telefono) : '')}">
+            <input id="f-tel" name="telefono" type="tel" inputmode="numeric" autocomplete="off" placeholder="10 dígitos, ej. 444 123 4567" value="${esc(c ? U.phoneDisplay(c.telefono) : '')}">
             <div id="tel-aviso"></div></div>
           <div class="field"><label for="f-dir">Dirección</label>
-            <textarea id="f-dir" name="direccion" rows="2" placeholder="Calle, número, colonia">${esc(c?.direccion)}</textarea></div>
+            <textarea id="f-dir" name="direccion" rows="2" placeholder="Calle, número y colonia. Ej. Av. Cordillera de los Himalaya 216, Lomas 4a Sección">${esc(c?.direccion)}</textarea>
+            <div id="map-prev" class="map-prev"></div></div>
           ${editing ? '' : `
           <h3 class="form-step"><span>2</span> Servicio</h3>
           ${cuandoFieldset('hoy')}
-          ${tipoSelect()}
+          <div class="grid-2">${tipoSelect()}${precioField()}</div>
           <h3 class="form-step"><span>3</span> Seguimiento</h3>
           ${seguimientoRadios(30)}
           <h3 class="form-step"><span>4</span> Comentario <small>(opcional)</small></h3>
@@ -109,7 +151,8 @@ const Forms = (() => {
     });
 
     const form = m.el.querySelector('form');
-    if (!editing) wireCuando(form);
+    if (!editing) { wireCuando(form); wirePrecio(form); }
+    wireMapa(form);
 
     // Aviso en vivo si el teléfono ya existe (y alerta roja si está bloqueado)
     const telInput = form.querySelector('[name=telefono]');
@@ -153,7 +196,7 @@ const Forms = (() => {
         return;
       }
       const nuevo = Store.addCliente(val);
-      Store.addServicio({ clienteId: nuevo.id, tipo: fd.get('tipo'), seguimientoDias: fd.get('seguimientoDias'), ...serv });
+      Store.addServicio({ clienteId: nuevo.id, tipo: fd.get('tipo'), seguimientoDias: fd.get('seguimientoDias'), precio: Number(fd.get('precio')) || null, ...serv });
       const com = (fd.get('comentario') || '').trim();
       if (com) Store.addComentario(nuevo.id, com);
       m.close();
@@ -163,7 +206,7 @@ const Forms = (() => {
   }
 
   /* ---------- Servicio (nuevo o editar) ---------- */
-  function servicio({ clienteId = null, servicioId = null, cuando = 'agendar' } = {}) {
+  function servicio({ clienteId = null, servicioId = null, cuando = 'agendar', fecha = null } = {}) {
     const s = servicioId ? Store.getServicio(servicioId) : null;
     const editing = !!s;
     let selected = clienteId || s?.clienteId || null;
@@ -187,8 +230,8 @@ const Forms = (() => {
             <div class="grid-2">
               <div class="field"><label for="f-fecha">Día</label><input type="date" id="f-fecha" name="fecha" value="${s.fecha}"></div>
               <div class="field"><label for="f-hora">Hora acordada</label><input type="time" id="f-hora" name="hora" value="${s.hora}"></div>
-            </div>` : cuandoFieldset(cuando)}
-          ${tipoSelect(s?.tipo)}
+            </div>` : cuandoFieldset(cuando, '', fecha || U.addDays(U.todayStr(), 1))}
+          <div class="grid-2">${tipoSelect(s?.tipo)}${precioField(s?.precio)}</div>
           ${seguimientoRadios(s?.seguimientoDias || 30)}
           ${editing ? `<div class="danger-zone"><button type="button" class="btn btn--danger-ghost" data-cancelar>${Icon('x')} Cancelar este servicio</button></div>` : ''}
         </form>`,
@@ -197,6 +240,7 @@ const Forms = (() => {
     });
     const form = m.el.querySelector('form');
     if (!editing) wireCuando(form);
+    wirePrecio(form);
 
     // Selector de cliente con búsqueda
     if (!selected) {
@@ -212,7 +256,7 @@ const Forms = (() => {
           .slice(0, 8);
         list.innerHTML = res.length ? res.map((c) => `
           <li><button type="button" class="picker__item ${hidden.value === c.id ? 'is-selected' : ''}" data-pick="${c.id}" ${c.bloqueado ? 'disabled' : ''}>
-            ${C.avatar(c)}<span><strong>${esc(Store.nombreCompleto(c))}</strong><small>${c.bloqueado ? '🚫 Bloqueado — no se le pueden agendar servicios' : esc(U.phoneDisplay(c.telefono))}</small></span>
+            ${C.avatar(c)}<span><strong>${esc(Store.nombreCompleto(c))}</strong><small>${c.bloqueado ? 'Bloqueado: no se le pueden agendar servicios' : esc(U.phoneDisplay(c.telefono))}</small></span>
             ${hidden.value === c.id ? Icon('check') : ''}</button></li>`).join('')
           : '<li class="muted picker__none">No se encontró. Si es nuevo, primero regístrelo con “Registrar cliente”.</li>';
       };
@@ -252,7 +296,7 @@ const Forms = (() => {
         if (errors.clienteId) form.querySelector('#f-buscar-cli')?.focus();
         return;
       }
-      const common = { tipo: fd.get('tipo'), seguimientoDias: Number(fd.get('seguimientoDias')) };
+      const common = { tipo: fd.get('tipo'), seguimientoDias: Number(fd.get('seguimientoDias')), precio: Number(fd.get('precio')) || null };
       if (editing) {
         Store.updateServicio(s.id, { ...datos, ...common });
         UI.toast('Servicio actualizado');

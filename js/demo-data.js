@@ -79,6 +79,59 @@ function buildDemoData() {
     fechaSeguimientoEnviado: seguimiento === 'enviado' ? d(rel + seguimientoDias) : null,
   }));
 
+  // Precios: base por plaga; negocios y escuelas pagan más (superficie mayor)
+  const BASE = {
+    'Fumigación general': 950, Cucarachas: 650, Hormigas: 550, Termitas: 2200, Chinches: 1400,
+    Alacranes: 750, Roedores: 1100, Arañas: 600, Mosquitos: 700, 'Pulgas y garrapatas': 800,
+  };
+  const FACTOR = { c04: 1.6, c10: 2.2, c14: 1.3 };
+  let seed = 7;
+  const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+  const precio = (cid, tipo) => Math.round(((BASE[tipo] || 800) * (FACTOR[cid] || 1) * (0.9 + rnd() * 0.25)) / 50) * 50;
+  servicios.forEach((s) => { s.precio = precio(s.clienteId, s.tipo); });
+
+  // Historial de ~7 meses para que los reportes tengan datos (crece poco a poco, como un negocio real)
+  const activos = ['c01', 'c02', 'c03', 'c04', 'c06', 'c07', 'c08', 'c09', 'c10', 'c11', 'c13', 'c14', 'c15'];
+  const tipos = ['Cucarachas', 'Cucarachas', 'Fumigación general', 'Fumigación general', 'Hormigas', 'Alacranes',
+    'Termitas', 'Roedores', 'Chinches', 'Arañas', 'Mosquitos', 'Cucarachas'];
+  const horas = ['08:00', '09:00', '10:00', '11:30', '13:00', '16:00', '17:30'];
+  const hoyD = U.parseDate(hoy);
+  const porMes = [5, 6, 7, 7, 9, 10, 11]; // de hace 7 meses a hace 1 mes
+  porMes.forEach((cuantos, i) => {
+    const mesAtras = 7 - i;
+    for (let k = 0; k < cuantos; k++) {
+      const f = new Date(hoyD.getFullYear(), hoyD.getMonth() - mesAtras, 1 + Math.floor(rnd() * 27));
+      if (f.getDay() === 0) f.setDate(f.getDate() - 1); // los domingos no se trabaja
+      const rel = U.diffDays(hoy, U.toDateStr(f));
+      if (rel > -32) continue; // el mes reciente ya lo cubren los datos de arriba
+      const cid = activos[Math.floor(rnd() * activos.length)];
+      const tipo = tipos[Math.floor(rnd() * tipos.length)];
+      const dias = [15, 20, 30][Math.floor(rnd() * 3)];
+      const enviado = rnd() > 0.2;
+      servicios.push({
+        id: `h${++n}`, clienteId: cid, tipo, fecha: d(rel), hora: horas[Math.floor(rnd() * horas.length)], estado: 'realizado',
+        precio: precio(cid, tipo), seguimientoDias: dias, seguimiento: enviado ? 'enviado' : 'omitido',
+        fechaSeguimientoEnviado: enviado ? d(rel + dias) : null,
+      });
+    }
+  });
+  // Este mes: algunos servicios ya hechos (con su seguimiento todavía por venir)
+  for (let k = 0; k < 6 && hoyD.getDate() > 2; k++) {
+    const rel = -1 - Math.floor(rnd() * (hoyD.getDate() - 1));
+    const cid = activos[Math.floor(rnd() * activos.length)];
+    const tipo = tipos[Math.floor(rnd() * tipos.length)];
+    servicios.push({
+      id: `h${++n}`, clienteId: cid, tipo, fecha: d(rel), hora: horas[Math.floor(rnd() * horas.length)], estado: 'realizado',
+      precio: precio(cid, tipo), seguimientoDias: 30, seguimiento: 'pendiente', fechaSeguimientoEnviado: null,
+    });
+  }
+
+  // Coherencia: nadie puede ser "cliente desde" después de su primer servicio
+  clientes.forEach((c) => {
+    const primero = servicios.filter((s) => s.clienteId === c.id).map((s) => s.fecha).sort()[0];
+    if (primero && primero < c.fechaRegistro) c.fechaRegistro = primero;
+  });
+
   n = 0;
   // [clienteId, texto, díasRelativos, hora, negativo]
   const comentarios = [
@@ -108,9 +161,10 @@ function buildDemoData() {
 
   // Los bloqueos también quedan registrados como comentario
   comentarios.push(
-    { id: 'm-b1', clienteId: 'c05', texto: '🚫 Cliente bloqueado. Motivo: No pagó el último servicio y fue grosero con el técnico.', fecha: iso(-40, 9), negativo: true },
-    { id: 'm-b2', clienteId: 'c12', texto: '🚫 Cliente bloqueado. Motivo: Canceló 3 veces a última hora sin avisar.', fecha: iso(-15, 9), negativo: true },
+    { id: 'm-b1', clienteId: 'c05', texto: 'Cliente bloqueado. Motivo: No pagó el último servicio y fue grosero con el técnico.', fecha: iso(-40, 9), negativo: true },
+    { id: 'm-b2', clienteId: 'c12', texto: 'Cliente bloqueado. Motivo: Canceló 3 veces a última hora sin avisar.', fecha: iso(-15, 9), negativo: true },
   );
 
-  return { clientes, servicios, comentarios, ajustes: { negocio: 'Fumigaciones El Escudo' } };
+  // demo: 2 → versión con precios e historial (las demos antiguas se actualizan solas)
+  return { demo: 2, clientes, servicios, comentarios, ajustes: { negocio: 'HK Control de Plagas' } };
 }
