@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1d6b45">
+  <title>Control de Plagas · Clientes</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐜</text></svg>">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Menú principal: barra lateral en computadora, barra inferior en celular -->
+    <nav class="nav" aria-label="Menú principal">
+      <div class="nav__brand">
+        <span class="nav__logo" aria-hidden="true">🐜</span>
+        <div>
+          <strong id="brand-name">Control de Plagas</strong>
+          <small>Clientes y servicios</small>
+        </div>
+      </div>
+      <ul class="nav__list" id="nav-list"></ul>
+      <a class="nav__settings" href="#/ajustes" data-route="ajustes"></a>
+    </nav>
+
+    <div class="content">
+      <header class="topbar">
+        <div>
+          <h1 class="topbar__title" id="page-title">Inicio</h1>
+          <p class="topbar__subtitle" id="page-subtitle"></p>
+        </div>
+        <div class="topbar__actions">
+          <button class="btn btn--primary btn--lg topbar__new" data-action="nuevo-cliente">
+            <span data-icon="plus"></span> Registrar cliente
+          </button>
+          <a class="icon-btn topbar__settings" href="#/ajustes" aria-label="Ajustes" title="Ajustes"><span data-icon="settings"></span></a>
+        </div>
+      </header>
+
+      <main id="main" class="main" tabindex="-1"></main>
+    </div>
+  </div>
+
+  <div id="modal-root"></div>
+  <div id="toast-root" aria-live="polite"></div>
+
+  <!-- Orden importa: utilidades → datos → interfaz → pantallas → arranque -->
+  <script src="js/icons.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/demo-data.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/components.js"></script>
+  <script src="js/forms.js"></script>
+  <script src="js/views.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

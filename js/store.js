@@ -1,0 +1,259 @@
+/* =====================================================================
+   Capa de datos. Todo se guarda en el navegador (localStorage).
+   Modelo:
+     Cliente    { id, nombre, apellido, telefono, direccion, fechaRegistro,
+                  bloqueado, motivoBloqueo, fechaBloqueo }
+     Servicio   { id, clienteId, tipo, fecha, hora, estado: pendiente|realizado|cancelado,
+                  seguimientoDias: 15|20|30, seguimiento: pendiente|enviado|omitido,
+                  fechaSeguimientoEnviado }
+     Comentario { id, clienteId, texto, fecha (ISO), negativo }
+   ===================================================================== */
+const Store = (() => {
+  const KEY = 'controlPlagas.v1';
+
+  const DEFAULT_AJUSTES = {
+    negocio: 'Control de Plagas',
+    plantillaSeguimiento:
+      'Hola {nombre}, le saluda {negocio}. 🐜\n\nHace {dias} días realizamos su servicio de {servicio}. ¿Cómo ha funcionado? ¿Ha vuelto a ver plagas?\n\nSi gusta, con gusto le agendamos su siguiente servicio. ¡Gracias por su confianza!',
+    plantillaRecordatorio:
+      'Hola {nombre}, le saluda {negocio}. 🐜\n\nLe recordamos su servicio de {servicio} programado para el {fecha} a las {hora} en {direccion}.\n\nSi necesita cambiar la hora, por favor avísenos. ¡Gracias!',
+  };
+
+  let data = { clientes: [], servicios: [], comentarios: [], ajustes: { ...DEFAULT_AJUSTES } };
+  const listeners = new Set();
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        data = { ...data, ...parsed, ajustes: { ...DEFAULT_AJUSTES, ...(parsed.ajustes || {}) } };
+        return true;
+      }
+    } catch (e) {
+      console.warn('No se pudieron leer los datos guardados', e);
+    }
+    return false;
+  }
+
+  function save() {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(data));
+    } catch (e) {
+      console.warn('No se pudieron guardar los datos', e);
+    }
+    listeners.forEach((fn) => fn());
+  }
+
+  const onChange = (fn) => listeners.add(fn);
+
+  /* ------------------------------ Clientes ------------------------------ */
+  const nombreCompleto = (c) => `${c.nombre} ${c.apellido}`.trim();
+  const getClientes = () => data.clientes;
+  const getCliente = (id) => data.clientes.find((c) => c.id === id);
+  const buscarPorTelefono = (tel, excludeId) => {
+    const d = U.phoneDigits(tel).slice(-10);
+    if (d.length < 10) return null;
+    return data.clientes.find((c) => c.id !== excludeId && U.phoneDigits(c.telefono).slice(-10) === d) || null;
+  };
+
+  function addCliente({ nombre, apellido, telefono, direccion }) {
+    const c = {
+      id: U.uid(), nombre: nombre.trim(), apellido: apellido.trim(), telefono: U.phoneDigits(telefono),
+      direccion: direccion.trim(), fechaRegistro: U.todayStr(), bloqueado: false, motivoBloqueo: '', fechaBloqueo: null,
+    };
+    data.clientes.push(c);
+    save();
+    return c;
+  }
+
+  function updateCliente(id, patch) {
+    const c = getCliente(id);
+    if (!c) return;
+    Object.assign(c, patch);
+    if (patch.telefono) c.telefono = U.phoneDigits(patch.telefono);
+    save();
+  }
+
+  function deleteCliente(id) {
+    data.clientes = data.clientes.filter((c) => c.id !== id);
+    data.servicios = data.servicios.filter((s) => s.clienteId !== id);
+    data.comentarios = data.comentarios.filter((m) => m.clienteId !== id);
+    save();
+  }
+
+  function bloquear(id, motivo) {
+    const c = getCliente(id);
+    if (!c) return;
+    c.bloqueado = true;
+    c.motivoBloqueo = motivo.trim();
+    c.fechaBloqueo = U.todayStr();
+    // El motivo también queda en el historial de comentarios
+    data.comentarios.push({ id: U.uid(), clienteId: id, texto: `🚫 Cliente bloqueado. Motivo: ${c.motivoBloqueo}`, fecha: new Date().toISOString(), negativo: true });
+    // Los servicios pendientes de un cliente bloqueado se cancelan
+    data.servicios.forEach((s) => {
+      if (s.clienteId === id && s.estado === 'pendiente') s.estado = 'cancelado';
+    });
+    save();
+  }
+
+  function desbloquear(id) {
+    const c = getCliente(id);
+    if (!c) return;
+    c.bloqueado = false;
+    data.comentarios.push({ id: U.uid(), clienteId: id, texto: '✅ Cliente desbloqueado.', fecha: new Date().toISOString(), negativo: false });
+    c.motivoBloqueo = '';
+    c.fechaBloqueo = null;
+    save();
+  }
+
+  /* ------------------------------ Servicios ------------------------------ */
+  const getServicio = (id) => data.servicios.find((s) => s.id === id);
+  const sortServ = (a, b) => (a.fecha + (a.hora || '')).localeCompare(b.fecha + (b.hora || ''));
+
+  const serviciosDe = (clienteId) => data.servicios.filter((s) => s.clienteId === clienteId).sort(sortServ).reverse();
+
+  function addServicio({ clienteId, tipo, fecha, hora = '', estado, seguimientoDias }) {
+    const s = {
+      id: U.uid(), clienteId, tipo: tipo || 'Fumigación general', fecha, hora, estado,
+      seguimientoDias: Number(seguimientoDias) || 30, seguimiento: 'pendiente', fechaSeguimientoEnviado: null,
+    };
+    data.servicios.push(s);
+    save();
+    return s;
+  }
+
+  function updateServicio(id, patch) {
+    const s = getServicio(id);
+    if (!s) return;
+    Object.assign(s, patch);
+    save();
+  }
+
+  function marcarRealizado(id) {
+    const s = getServicio(id);
+    if (!s) return;
+    s.estado = 'realizado';
+    // Si se hizo antes de lo agendado, la fecha real es hoy (de ahí se cuenta el seguimiento)
+    if (U.diffDays(U.todayStr(), s.fecha) > 0) s.fecha = U.todayStr();
+    s.seguimiento = 'pendiente';
+    save();
+  }
+
+  /** Servicios agendados que aún no se hacen, ordenados por fecha y hora. */
+  const pendientes = () => data.servicios
+    .filter((s) => s.estado === 'pendiente' && !getCliente(s.clienteId)?.bloqueado)
+    .sort(sortServ);
+
+  const proximoServicio = (clienteId) => pendientes().find((s) => s.clienteId === clienteId) || null;
+  const ultimoRealizado = (clienteId) => serviciosDe(clienteId).find((s) => s.estado === 'realizado') || null;
+
+  /* ------------------------------ Seguimiento ------------------------------ */
+  const fechaSeguimiento = (s) => U.addDays(s.fecha, s.seguimientoDias);
+
+  /** Seguimientos de servicios realizados, con la fecha en que toca mandar el WhatsApp. */
+  function seguimientos() {
+    return data.servicios
+      .filter((s) => s.estado === 'realizado')
+      .map((s) => ({ servicio: s, cliente: getCliente(s.clienteId), fecha: fechaSeguimiento(s) }))
+      .filter((x) => x.cliente)
+      .sort((a, b) => a.fecha.localeCompare(b.fecha));
+  }
+
+  /** Mensajes que ya toca (o ya debió) enviar hoy. Excluye clientes bloqueados. */
+  const seguimientosPorEnviar = () => seguimientos()
+    .filter((x) => x.servicio.seguimiento === 'pendiente' && !x.cliente.bloqueado && x.fecha <= U.todayStr());
+
+  const seguimientosProximos = (dias = 30) => {
+    const hoy = U.todayStr();
+    const limite = U.addDays(hoy, dias);
+    return seguimientos().filter((x) => x.servicio.seguimiento === 'pendiente' && !x.cliente.bloqueado && x.fecha > hoy && x.fecha <= limite);
+  };
+
+  const seguimientosEnviados = () => seguimientos()
+    .filter((x) => x.servicio.seguimiento === 'enviado')
+    .sort((a, b) => (b.servicio.fechaSeguimientoEnviado || '').localeCompare(a.servicio.fechaSeguimientoEnviado || ''));
+
+  function marcarSeguimiento(servicioId, estado) {
+    const s = getServicio(servicioId);
+    if (!s) return;
+    s.seguimiento = estado;
+    s.fechaSeguimientoEnviado = estado === 'enviado' ? U.todayStr() : null;
+    save();
+  }
+
+  /* ------------------------------ Comentarios ------------------------------ */
+  const comentariosDe = (clienteId) => data.comentarios
+    .filter((m) => m.clienteId === clienteId)
+    .sort((a, b) => b.fecha.localeCompare(a.fecha));
+  const ultimoComentario = (clienteId) => comentariosDe(clienteId)[0] || null;
+
+  function addComentario(clienteId, texto, negativo = false) {
+    const m = { id: U.uid(), clienteId, texto: texto.trim(), fecha: new Date().toISOString(), negativo: !!negativo };
+    data.comentarios.push(m);
+    save();
+    return m;
+  }
+
+  function deleteComentario(id) {
+    data.comentarios = data.comentarios.filter((m) => m.id !== id);
+    save();
+  }
+
+  /* ------------------------------ Mensajes ------------------------------ */
+  function mensajeSeguimiento(s) {
+    const c = getCliente(s.clienteId);
+    return U.fillTemplate(data.ajustes.plantillaSeguimiento, {
+      nombre: c.nombre, apellido: c.apellido, negocio: data.ajustes.negocio,
+      dias: U.diffDays(s.fecha, U.todayStr()), servicio: s.tipo.toLowerCase(), fecha: U.formatDateLong(s.fecha),
+    });
+  }
+
+  function mensajeRecordatorio(s) {
+    const c = getCliente(s.clienteId);
+    return U.fillTemplate(data.ajustes.plantillaRecordatorio, {
+      nombre: c.nombre, apellido: c.apellido, negocio: data.ajustes.negocio, servicio: s.tipo.toLowerCase(),
+      fecha: U.formatDateLong(s.fecha), hora: U.formatTime(s.hora), direccion: c.direccion,
+    });
+  }
+
+  /* ------------------------------ Ajustes y respaldo ------------------------------ */
+  const getAjustes = () => data.ajustes;
+  function setAjustes(patch) {
+    Object.assign(data.ajustes, patch);
+    save();
+  }
+
+  const exportJSON = () => JSON.stringify({ app: 'control-plagas', version: 1, exportado: new Date().toISOString(), ...data }, null, 2);
+
+  function importJSON(text) {
+    const parsed = JSON.parse(text);
+    if (!Array.isArray(parsed.clientes) || !Array.isArray(parsed.servicios) || !Array.isArray(parsed.comentarios)) {
+      throw new Error('El archivo no parece un respaldo de esta aplicación.');
+    }
+    data = {
+      clientes: parsed.clientes, servicios: parsed.servicios, comentarios: parsed.comentarios,
+      ajustes: { ...DEFAULT_AJUSTES, ...(parsed.ajustes || {}) },
+    };
+    save();
+  }
+
+  function replaceAll(newData) {
+    data = { ...newData, ajustes: { ...DEFAULT_AJUSTES, ...(newData.ajustes || {}) } };
+    save();
+  }
+
+  function clearAll() {
+    data = { clientes: [], servicios: [], comentarios: [], ajustes: { ...data.ajustes } };
+    save();
+  }
+
+  return {
+    load, save, onChange, nombreCompleto, getClientes, getCliente, buscarPorTelefono, addCliente, updateCliente,
+    deleteCliente, bloquear, desbloquear, getServicio, serviciosDe, addServicio, updateServicio, marcarRealizado,
+    pendientes, proximoServicio, ultimoRealizado, fechaSeguimiento, seguimientos, seguimientosPorEnviar,
+    seguimientosProximos, seguimientosEnviados, marcarSeguimiento, comentariosDe, ultimoComentario, addComentario,
+    deleteComentario, mensajeSeguimiento, mensajeRecordatorio, getAjustes, setAjustes, exportJSON, importJSON,
+    replaceAll, clearAll, DEFAULT_AJUSTES,
+  };
+})();
