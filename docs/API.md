@@ -239,3 +239,55 @@ Pocos, y todos son **agregados**; ninguna función existente cambia:
 4. **Primera versión con un solo usuario admin**, y técnicos después. ¿De acuerdo?
 5. **Precio oculto para técnicos.** ¿El técnico debe ver cuánto cobrar en el servicio del día? Si sí, se muestra el precio del servicio, pero no la pantalla Negocio.
 6. **Versión en `index.html`** (`?v=…`): cuando cambie `store.js`, ¿la subo yo o la sube siempre Leonardo?
+
+---
+
+## 10. Respuestas de Leonardo (23 de noviembre de 2026)
+
+Las secciones 1 a 8 las doy por buenas, incluidas las funciones nuevas de `Store` (sección 8). Yo hago en el front la pantalla de inicio de sesión, el indicador de `onEstado`, el aviso de fecha incorrecta y lo que se esconde según el rol.
+
+### 1. Servidor y base de datos
+Lo decides tú. Agrego **Firebase** como tercera opción junto a Supabase y Node, **si se adapta** a lo que ya tenemos. Cualquier opción debe cumplir lo siguiente:
+- Las pantallas no cambian; solo cambia el interior de `store.js`.
+- Nada secreto en el front.
+- Las reglas de [BACKEND.md §3](BACKEND.md#3-reglas-de-negocio-que-el-servidor-debe-respetar) las aplica el servidor. Por ejemplo, bloquear al cliente, cancelar sus servicios y agregar el comentario ocurren en una sola operación.
+
+Con Firebase veo esto:
+- **Encaja así:** Hosting, más Cloud Functions atendiendo `/api` con una regla de reescritura, más Firestore. El front y la API quedan en el mismo dominio gratuito (`*.web.app`) y el contrato de este documento no cambia.
+- **Puntos a revisar:**
+  - Cloud Functions pide el plan **Blaze**, que se paga por uso, tiene cuota gratis y pide tarjeta. Hay que confirmarlo con el cliente.
+  - Firestore no borra en cascada ni tiene llaves foráneas. Borrar un cliente y bloquearlo se hacen dentro de la función, con una transacción.
+  - Si el front hablara directo con Firestore (SDK con reglas de seguridad) en lugar de la API, cambiarían el contrato y todo el interior de `Store`. Además, el SDK de Firebase Auth guarda la sesión en el navegador, lo que choca con la regla de no guardar tokens en el front. Si se usa Firebase Auth, que sea con **cookies de sesión del Admin SDK** (`createSessionCookie`) emitidas por la función, para mantener la cookie `HttpOnly` de la sección 4.
+  - El respaldo diario puede ser una exportación programada de Firestore o una función que guarde el JSON.
+
+Si Firebase obliga a cambiar el contrato o a poner tokens en el front, prefiero Supabase o Node.
+
+### 2. Dominio y hospedaje
+**El cliente dice que no hace falta dominio propio.** Puede quedarse en el subdominio gratuito del hospedaje que elijas: Netlify, Vercel, Cloudflare Pages o Firebase Hosting.
+
+La única condición es que **la API responda en el mismo origen que el front, bajo `/api`**. Se puede hacer con las funciones del propio hospedaje o con una regla de reescritura o proxy hacia tu servidor.
+
+La razón: si el front está en `algo.vercel.app` y la API en otro dominio (por ejemplo `*.supabase.co`), la cookie de sesión sería de terceros. Safari en iPhone bloquea ese tipo de cookies y el inicio de sesión fallaría en el celular. En el mismo origen, la cookie se queda en `SameSite=Lax` y no hace falta CORS.
+
+GitHub Pages deja de servir, porque no permite `/api` ni reescrituras.
+
+### 3. Deshacer "Ya se hizo"
+Usemos la **función nueva `Store.deshacerRealizado(id, antes)`**. Es más clara que reconocer el caso por dentro. Yo cambio la llamada en `js/app.js` (hoy usa `Store.updateServicio(s.id, antes)`).
+
+### 4. Primera versión con un solo admin
+De acuerdo. Los técnicos vienen después.
+
+### 5. Precio para técnicos
+El técnico **sí ve el precio de sus servicios pendientes**, porque es quien cobra. Lo que no ve:
+- el precio de los servicios ya realizados (llega `null`, para no exponer cuánto ha ganado el negocio);
+- la pantalla Negocio;
+- la tarjeta "Cobrado en el mes" de Inicio;
+- la opción de editar el precio.
+
+Yo escondo esas partes en el front según `Store.usuario().rol`.
+
+### 6. Versión `?v=` en `index.html`
+La sube **quien cambie el archivo, en el mismo commit**.
+
+### Otro punto
+- `id` con `crypto.randomUUID()`: de acuerdo. Ese cambio va dentro de `store.js`. Deja `U.uid()` como respaldo para los navegadores que no tengan `randomUUID`.

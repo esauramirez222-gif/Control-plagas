@@ -130,7 +130,7 @@ Cuando exista el servidor, Leonardo agrega en el front los estados de **cargando
 - [ ] **Inicio de sesión.** Hoy cualquiera con el enlace ve todo. Mínimo: usuario del encargado. Ideal: roles *administrador* (borrar, bloquear, ver Negocio) y *técnico* (ver su ruta y marcar hecho).
 - [ ] Respaldo automático diario en el servidor.
 - [ ] Migración: importar el JSON de "Descargar respaldo" para no perder lo capturado en el navegador.
-- [ ] Hospedaje: el front es estático (sirve GitHub Pages). Configurar CORS para su dominio.
+- [ ] Hospedaje sin dominio propio (Netlify, Vercel, Cloudflare Pages o Firebase Hosting), con la API en el mismo origen bajo `/api`. Ver [API.md §10](API.md#10-respuestas-de-leonardo-23-de-noviembre-de-2026).
 
 ### Fuera de alcance por ahora
 - **API de WhatsApp: no se va a usar todavía.** El envío se queda como está: el front abre `wa.me` con el mensaje listo y la persona presiona enviar. No hace falta nada del lado del servidor para WhatsApp.
