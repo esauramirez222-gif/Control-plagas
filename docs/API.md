@@ -1,10 +1,10 @@
 # Contrato de la API — propuesta para acordar
 
-**De:** Jaziel (backend) · **Para:** Leonardo (frontend) · **Estado:** borrador, 23 de noviembre de 2026
+**De:** Jaziel (backend) · **Para:** Leonardo (frontend) · **Estado:** acordado el 23 de noviembre de 2026; queda pendiente solo el punto de la sección 11
 
 Parte de la propuesta de [BACKEND.md](BACKEND.md), sección 4, y la ajusta con lo que encontré al revisar cada llamada que las pantallas hacen a `Store`. La idea sigue igual: **`Store` mantiene sus mismas funciones síncronas**, guarda todo en memoria y manda los cambios al servidor por detrás. Las pantallas no cambian.
 
-Al final hay una lista de **decisiones a confirmar** (sección 9). Lo demás lo doy por bueno si no tienes objeción.
+Las preguntas de la sección 9 ya tienen respuesta de Leonardo (sección 10), y el resto del documento ya está actualizado con esas respuestas. La sección 11 registra lo que se ajustó después y el único punto que falta confirmar.
 
 ---
 
@@ -99,7 +99,8 @@ DELETE /api/sesion                              (cerrar sesión)
 ```
 
 - Cookie `HttpOnly; Secure; SameSite=Lax`, válida 30 días. El JavaScript no la puede leer, así que no hay tokens en el front.
-- **Recomendación: servir el front y la API desde el mismo dominio** (por ejemplo `hk-plagas.com` y `hk-plagas.com/api`). Así no hace falta configurar CORS ni cookies entre dominios. Si el front se queda en GitHub Pages, hay que usar `SameSite=None` y CORS con credenciales solo para ese dominio.
+- **El front y la API van en el mismo origen** (acordado, sección 10): el subdominio gratuito del hospedaje, con la API bajo `/api`. Así no hace falta CORS y la cookie no es de terceros (Safari en iPhone las bloquea). GitHub Pages ya no se usa.
+- **Si se usa Firebase Hosting:** al pasar la petición a Cloud Functions, Hosting **elimina todas las cookies excepto una llamada `__session`**. La cookie de sesión debe llamarse exactamente `__session`; con otro nombre la función nunca la recibe y el inicio de sesión falla siempre. En los demás hospedajes el nombre es libre.
 - Contraseñas guardadas con hash (argon2 o bcrypt). Bloqueo temporal tras 5 intentos fallidos.
 
 ### Permisos por rol
@@ -109,7 +110,10 @@ DELETE /api/sesion                              (cerrar sesión)
 | Ver clientes, agenda y seguimiento | ✓ | ✓ |
 | Registrar clientes y servicios, comentar | ✓ | ✓ |
 | Marcar “Ya se hizo”, enviar seguimiento | ✓ | ✓ |
-| Editar precio | ✓ | — |
+| Ver el precio de servicios pendientes | ✓ | ✓ |
+| Ver el precio de servicios realizados | ✓ | — |
+| Poner precio al registrar un servicio | ✓ | ✓ *(por confirmar, sección 11)* |
+| Cambiar el precio después | ✓ | — |
 | Bloquear / desbloquear | ✓ | — |
 | Eliminar cliente o comentario | ✓ | — |
 | Ver “Negocio” (dinero) | ✓ | — |
@@ -128,7 +132,7 @@ El servidor **siempre** revisa el permiso, aunque el front esconda el botón. Pa
 GET /api/datos   → { clientes, servicios, comentarios, ajustes, hoy: 'AAAA-MM-DD', usuario }
 ```
 - `hoy` es la fecha en `America/Mexico_City`. Si no coincide con la del dispositivo, el front muestra un aviso (“La fecha de su equipo no es correcta”).
-- Para un técnico, `servicios[].precio` llega como `null`.
+- Para un técnico, `precio` llega como `null` **solo en servicios `realizado`**. En los `pendiente` llega el precio, porque él es quien cobra. Lo mismo aplica a **todas** las respuestas, no solo a la carga inicial: si un técnico marca “Ya se hizo”, el servicio que recibe de vuelta ya trae `precio: null`.
 
 ### 5.2 Servicios
 
@@ -137,7 +141,7 @@ GET /api/datos   → { clientes, servicios, comentarios, ajustes, hoy: 'AAAA-MM-
 | `POST /api/servicios` | Servicio completo con `id` | Servicio | `addServicio` |
 | `PATCH /api/servicios/:id` | `version` + cualquiera de: `fecha, hora, tipo, precio, estado, seguimientoDias, seguimiento, mensajeSeguimiento` | Servicio | `updateServicio`, `setMensajeSeguimiento` |
 | `POST /api/servicios/:id/realizado` | `{ version }` | `{ servicio, antes }` | `marcarRealizado` |
-| `POST /api/servicios/:id/deshacer-realizado` | `{ antes }` | Servicio | *Deshacer* de “Ya se hizo” |
+| `POST /api/servicios/:id/deshacer-realizado` | `{ antes }` | Servicio | `deshacerRealizado` (nueva) |
 | `POST /api/servicios/:id/seguimiento` | `{ estado: 'enviado' \| 'omitido' \| 'pendiente' }` | Servicio | `marcarSeguimiento` |
 
 Reglas que aplica el servidor:
@@ -145,8 +149,9 @@ Reglas que aplica el servidor:
 - `deshacer-realizado`: solo funciona durante **15 segundos** después de marcarlo (el front ofrece 8; el margen cubre una conexión lenta). Después responde `409`.
 - `seguimiento: 'enviado'` pone `fechaSeguimientoEnviado` = hoy (México). `pendiente` u `omitido` lo ponen en `null`.
 - `mensajeSeguimiento` igual al texto de la plantilla → se guarda `null`.
+- Técnico que manda `precio` en un `PATCH` → `403` (“Solo el administrador puede cambiar el precio.”).
 
-> **Para Leonardo:** el *Deshacer* hoy llama `Store.updateServicio(s.id, antes)`. Propongo que `Store` reconozca ese caso por dentro y use `deshacer-realizado`, para que la pantalla no cambie. Otra opción es una función nueva `Store.deshacerRealizado(id, antes)`. ¿Cuál prefieres?
+> **Acordado (sección 10):** el *Deshacer* usará la función nueva `Store.deshacerRealizado(id, antes)`, que llama a `deshacer-realizado`. Leonardo cambia la llamada en `js/app.js`, que hoy usa `Store.updateServicio(s.id, antes)`.
 
 ### 5.3 Clientes
 
@@ -217,7 +222,7 @@ Solo cambia el interior de `store.js`; las funciones y lo que devuelven siguen i
 
 ---
 
-## 8. Cambios a la interfaz pública de `Store` (para aprobar)
+## 8. Cambios a la interfaz pública de `Store` (aprobados)
 
 Pocos, y todos son **agregados**; ninguna función existente cambia:
 
@@ -228,10 +233,11 @@ Pocos, y todos son **agregados**; ninguna función existente cambia:
 | `Store.iniciarSesion(usuario, contrasena)` / `Store.cerrarSesion()` → `Promise` | Pantalla de inicio de sesión. |
 | `Store.onEstado(fn)` | Indicador de guardando / sin conexión / error. |
 | `Store.modoLocal()` → `boolean` | `true` sin servidor: se permite la demo y “Volver a cargar ejemplos”. |
+| `Store.deshacerRealizado(id, antes)` | *Deshacer* de “Ya se hizo” (sección 5.2). Restaura `{ estado, fecha, seguimiento }` en memoria al instante y llama a `deshacer-realizado`. |
 
 ---
 
-## 9. Decisiones a confirmar
+## 9. Decisiones a confirmar *(respondidas en la sección 10)*
 
 1. **Servidor y base de datos.** Propongo **Supabase** (PostgreSQL + autenticación + respaldos), con los endpoints como funciones del lado del servidor, o un servidor Node pequeño con PostgreSQL. ¿Alguna preferencia por el hospedaje?
 2. **Mismo dominio para front y API** (sin CORS) o front en GitHub Pages con CORS. Recomiendo el mismo dominio.
@@ -291,3 +297,23 @@ La sube **quien cambie el archivo, en el mismo commit**.
 
 ### Otro punto
 - `id` con `crypto.randomUUID()`: de acuerdo. Ese cambio va dentro de `store.js`. Deja `U.uid()` como respaldo para los navegadores que no tengan `randomUUID`.
+
+---
+
+## 11. Ajustes después de las respuestas (Jaziel, 23 de noviembre de 2026)
+
+Actualicé el documento con las respuestas de la sección 10 para que no se contradiga:
+
+- **Precio para técnicos** (secciones 4, 5.1 y 5.2): el `precio` llega como `null` solo en servicios realizados, y eso aplica a todas las respuestas, no solo a la carga inicial. Si un técnico intenta cambiar el precio, la respuesta es `403`.
+- **`Store.deshacerRealizado(id, antes)`** quedó en la tabla de la sección 8 y en la 5.2.
+- **Mismo origen** en la sección 4, más un aviso para Firebase Hosting: la cookie de sesión debe llamarse `__session`, porque Hosting elimina todas las demás antes de pasarlas a Cloud Functions.
+
+### Falta confirmar: ¿el técnico puede poner precio al registrar un servicio?
+
+“No editar el precio” no cubre el caso de un técnico que registra un servicio nuevo, por ejemplo uno que “Se hizo hoy” y ya cobró. Propongo:
+
+- **Sí puede ponerlo al registrar** (`POST /api/servicios` acepta `precio`), porque es quien cobra y, si no, ese dinero no aparecería en Negocio.
+- **No puede cambiarlo después** (`PATCH` con `precio` → `403`).
+- El campo de precio se muestra en el formulario de registro también para el técnico, y se esconde o se bloquea al editar un servicio.
+
+Leonardo, si prefieres que el técnico nunca capture precio, el servidor ignora el `precio` que mande un técnico al crear y tú escondes el campo. Dime cuál de las dos.
