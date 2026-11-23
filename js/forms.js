@@ -11,20 +11,29 @@ const Forms = (() => {
       <select id="f-tipo" name="tipo">${TIPOS.map((t) => `<option ${t === sel ? 'selected' : ''}>${t}</option>`).join('')}</select>
     </div>`;
 
-  /** Precio del servicio (opcional). El sugerido sale del promedio de lo cobrado por ese tipo de servicio. */
-  const precioField = (val = '') => `
+  /**
+   * Precio del servicio (opcional). El sugerido sale del promedio de lo cobrado por ese tipo de servicio.
+   * El técnico pone el precio al registrar, pero no lo puede cambiar después (docs/API.md §12).
+   */
+  const precioField = (val = '', { editando = false } = {}) => {
+    const bloqueado = editando && !Store.esAdmin();
+    return `
     <div class="field"><label for="f-precio">Precio del servicio <span class="muted">(opcional)</span></label>
       <div class="money-input"><span aria-hidden="true">$</span>
-        <input id="f-precio" name="precio" type="number" inputmode="numeric" min="0" step="50" value="${val ?? ''}"></div>
-      <p class="hint hint--below" data-sugerido></p></div>`;
+        <input id="f-precio" name="precio" type="number" inputmode="numeric" min="0" step="50" value="${val ?? ''}" ${bloqueado ? 'disabled aria-describedby="precio-solo-admin"' : ''}></div>
+      ${bloqueado ? '<p class="hint hint--below" id="precio-solo-admin">Solo el administrador puede cambiar el precio.</p>' : '<p class="hint hint--below" data-sugerido></p>'}</div>`;
+  };
 
   /** Cambia el precio sugerido cuando se elige otro tipo de servicio. */
   function wirePrecio(form) {
     const tipo = form.querySelector('[name=tipo]');
     const input = form.querySelector('[name=precio]');
     const hint = form.querySelector('[data-sugerido]');
+    if (!hint || input.disabled) return;
+    // El técnico no recibe los precios de lo ya hecho: el promedio no sería confiable
+    const sugerir = Store.esAdmin();
     const update = () => {
-      const sug = Store.precioSugerido(tipo.value);
+      const sug = sugerir ? Store.precioSugerido(tipo.value) : null;
       input.placeholder = sug ? String(sug) : 'Ej. 650';
       hint.innerHTML = sug ? `Normalmente se cobra <strong class="num">${U.money(sug)}</strong> por ${esc(tipo.value.toLowerCase())}. <button type="button" class="link-btn" data-usar-precio="${sug}">Usar este precio</button>` : '';
     };
@@ -231,7 +240,7 @@ const Forms = (() => {
               <div class="field"><label for="f-fecha">Día</label><input type="date" id="f-fecha" name="fecha" value="${s.fecha}"></div>
               <div class="field"><label for="f-hora">Hora acordada</label><input type="time" id="f-hora" name="hora" value="${s.hora}"></div>
             </div>` : cuandoFieldset(cuando, '', fecha || U.addDays(U.todayStr(), 1))}
-          <div class="grid-2">${tipoSelect(s?.tipo)}${precioField(s?.precio)}</div>
+          <div class="grid-2">${tipoSelect(s?.tipo)}${precioField(s?.precio, { editando: editing })}</div>
           ${seguimientoRadios(s?.seguimientoDias || 30)}
           ${editing ? `<div class="danger-zone"><button type="button" class="btn btn--danger-ghost" data-cancelar>${Icon('x')} Cancelar este servicio</button></div>` : ''}
         </form>`,
@@ -297,6 +306,8 @@ const Forms = (() => {
         return;
       }
       const common = { tipo: fd.get('tipo'), seguimientoDias: Number(fd.get('seguimientoDias')), precio: Number(fd.get('precio')) || null };
+      // Campo bloqueado (técnico editando): no se manda el precio, así el servidor no responde 403
+      if (form.querySelector('[name=precio]').disabled) delete common.precio;
       if (editing) {
         Store.updateServicio(s.id, { ...datos, ...common });
         UI.toast('Servicio actualizado');

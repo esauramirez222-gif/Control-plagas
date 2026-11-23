@@ -59,7 +59,7 @@ const Views = (() => {
 
   /** Recordatorio de respaldo: solo con datos reales y si pasó más de un mes (o nunca se ha hecho). */
   function avisoRespaldo() {
-    if (Store.esDemo() || !Store.getClientes().length) return '';
+    if (!Store.modoLocal() || Store.esDemo() || !Store.getClientes().length) return '';
     const ultimo = pref.get('ultimoRespaldo');
     const dias = ultimo ? U.diffDays(ultimo, U.todayStr()) : null;
     if (dias != null && dias <= 30) return '';
@@ -105,6 +105,7 @@ const Views = (() => {
     const totalSemana = semana.reduce((a, d) => a + d.value, 0);
     const cobroSemana = semana.reduce((a, d) => a + d.cobro, 0);
     const pendientesHoy = [...atrasados, ...deHoy];
+    const admin = Store.esAdmin();
 
     return {
       title: new Date().getHours() < 12 ? 'Buenos días' : new Date().getHours() < 19 ? 'Buenas tardes' : 'Buenas noches',
@@ -112,7 +113,7 @@ const Views = (() => {
       actions: `${btnAgendar('ghost')}${btnRegistrar()}`,
       html: `
         ${avisoRespaldo()}
-        <div class="pulse">
+        <div class="pulse ${admin ? '' : 'pulse--2'}">
           <article class="pulse__card">
             <h2 class="pulse__title">Servicios de hoy</h2>
             <div class="pulse__row">
@@ -140,7 +141,7 @@ const Views = (() => {
             ${porEnviar.length ? `<a class="btn btn--wa btn--sm pulse__cta" href="#/seguimiento">${Icon('whatsapp')} Empezar a enviar</a>` : linkVer('#/seguimiento', 'Ver seguimiento')}
           </article>
 
-          <article class="pulse__card">
+          ${admin ? `<article class="pulse__card">
             <h2 class="pulse__title">Cobrado en ${U.MESES[U.parseDate(hoy).getMonth()]}</h2>
             <div class="pulse__row pulse__row--money">
               <div>
@@ -150,7 +151,7 @@ const Views = (() => {
               ${Charts.sparkline(meses.map((k) => St.suma(St.delMes(k).filter((s) => U.parseDate(s.fecha).getDate() <= diaHoy))))}
             </div>
             ${linkVer('#/negocio', 'Ver negocio')}
-          </article>
+          </article>` : ''}
         </div>
 
         <div class="home-grid">
@@ -231,6 +232,7 @@ const Views = (() => {
     const ultimo = hechos[0];
     const total = St.suma(hechos);
     const conPrecio = hechos.filter((s) => s.precio > 0);
+    const admin = Store.esAdmin();
     const frecuente = hechos.filter((s) => s.fecha >= U.addDays(hoy, -365)).length >= 3;
 
     // ¿Cada cuánto viene? Promedio de días entre servicios realizados
@@ -345,7 +347,7 @@ const Views = (() => {
         ${c.bloqueado ? `
           <div class="alert alert--danger">${Icon('ban')}<div>
             <strong>Cliente bloqueado</strong> desde el ${U.formatDateLong(c.fechaBloqueo, true)}. Motivo: ${esc(c.motivoBloqueo)}</div>
-            <button class="btn btn--ghost btn--sm" data-action="desbloquear" data-id="${id}">${Icon('unlock')} Desbloquear</button></div>` : ''}
+            ${admin ? `<button class="btn btn--ghost btn--sm" data-action="desbloquear" data-id="${id}">${Icon('unlock')} Desbloquear</button>` : ''}</div>` : ''}
 
         <nav class="contact-bar" aria-label="Contactar">
           <a class="contact-btn" href="${U.telLink(c.telefono)}">${Icon('phone')}<span><b>Llamar</b><small class="num">${esc(U.phoneDisplay(c.telefono))}</small></span></a>
@@ -375,13 +377,13 @@ const Views = (() => {
               <div class="card__head"><h2 class="card__title" id="t-hist">Historial</h2>${cadaTxt ? `<span class="muted">Viene ${cadaTxt} aprox.</span>` : ''}</div>
               <div class="hist__stats">
                 <div><b>${hechos.length}</b><span>${hechos.length === 1 ? 'servicio' : 'servicios'}</span></div>
-                <div><b>${U.money(total)}</b><span>cobrado en total</span></div>
-                <div><b>${conPrecio.length ? U.money(St.suma(conPrecio) / conPrecio.length) : '—'}</b><span>por servicio</span></div>
+                ${admin ? `<div><b>${U.money(total)}</b><span>cobrado en total</span></div>
+                <div><b>${conPrecio.length ? U.money(St.suma(conPrecio) / conPrecio.length) : '—'}</b><span>por servicio</span></div>` : ''}
               </div>
               ${cadencia}
               ${historial}
             </section>
-            <details class="more-opts">
+            ${admin ? `<details class="more-opts">
               <summary>Más opciones</summary>
               <div class="more-opts__body">
                 ${c.bloqueado
@@ -389,7 +391,7 @@ const Views = (() => {
                   : `<button class="btn btn--danger-ghost btn--block" data-action="bloquear" data-id="${id}">${Icon('ban')} Bloquear cliente</button>`}
                 <button class="btn btn--text btn--block btn--sm" data-action="eliminar-cliente" data-id="${id}">${Icon('trash')} Eliminar cliente para siempre</button>
               </div>
-            </details>
+            </details>` : ''}
           </div>
         </div>`,
     };
@@ -448,7 +450,7 @@ const Views = (() => {
           <div class="cal__head">
             <div>
               <h2 class="cal__title">${U.capitalize(U.monthName(ui.calMes))}</h2>
-              <p class="cal__sum muted">${U.plural(delMes.length, 'servicio', 'servicios')}${St.suma(delMes) ? `, <span class="num">${U.money(St.suma(delMes))}</span>` : ''}</p>
+              <p class="cal__sum muted">${U.plural(delMes.length, 'servicio', 'servicios')}${Store.esAdmin() && St.suma(delMes) ? `, <span class="num">${U.money(St.suma(delMes))}</span>` : ''}</p>
             </div>
             <div class="cal__nav">
               <button type="button" class="icon-btn" data-action="cal-mes" data-delta="-1" aria-label="Mes anterior">${Icon('chevronLeft')}</button>
@@ -465,7 +467,7 @@ const Views = (() => {
         <section class="day-panel" aria-live="polite">
           <div class="day-panel__head">
             <h2 class="day-panel__title">${dia === hoy ? 'Hoy' : U.capitalize(U.relativeDay(dia))}</h2>
-            <p class="muted">${U.capitalize(U.formatDateLong(dia))}${St.suma(lista) ? `, <span class="num">${U.money(St.suma(lista))}</span>` : ''}</p>
+            <p class="muted">${U.capitalize(U.formatDateLong(dia))}${Store.esAdmin() && St.suma(lista) ? `, <span class="num">${U.money(St.suma(lista))}</span>` : ''}</p>
           </div>
           ${pendDia.length ? C.serviciosList(pendDia, { ahora: dia === hoy }) : ''}
           ${hechosDia.length ? `<h3 class="day-panel__sub">Ya realizados</h3><ul class="rows done-list">${hechosDia.map(C.hechoRow).join('')}</ul>` : ''}
@@ -676,6 +678,7 @@ const Views = (() => {
     const dias = ultimo ? U.diffDays(ultimo, U.todayStr()) : null;
     const nS = Store.getServicios().length;
     const nC = Store.getClientes().length;
+    const local = Store.modoLocal();
 
     const editor = (name, titulo, ayuda) => `
       <div class="tpl">
@@ -730,16 +733,17 @@ const Views = (() => {
         <section class="set" aria-labelledby="s-resp">
           <div class="set__intro">
             <h2 id="s-resp">Respaldo</h2>
-            <p>La información vive en <strong>este navegador</strong>. Si se borra el historial o cambia de computadora, se pierde sin un respaldo.</p>
+            <p>${local ? 'La información vive en <strong>este navegador</strong>. Si se borra el historial o cambia de computadora, se pierde sin un respaldo.'
+              : 'La información se guarda en el servidor y se respalda sola cada día. Aquí puede descargar una copia cuando quiera.'}</p>
           </div>
           <div class="set__body card">
-            <div class="backup ${dias == null || dias > 30 ? 'backup--warn' : ''}">
+            ${local ? `<div class="backup ${dias == null || dias > 30 ? 'backup--warn' : ''}">
               ${Icon(dias == null || dias > 30 ? 'alert' : 'check')}
               <div>
                 <strong>${dias == null ? 'Todavía no ha descargado ningún respaldo' : dias === 0 ? 'Último respaldo: hoy' : `Último respaldo: hace ${U.plural(dias, 'día', 'días')}`}</strong>
                 <p class="muted">Se guardan ${U.plural(nC, 'cliente', 'clientes')}, ${U.plural(nS, 'servicio', 'servicios')} y todas las notas. Recomendado: una vez por semana.</p>
               </div>
-            </div>
+            </div>` : `<p class="muted">La copia incluye ${U.plural(nC, 'cliente', 'clientes')}, ${U.plural(nS, 'servicio', 'servicios')} y todas las notas. Cargar un respaldo reemplaza toda la información del servidor.</p>`}
             <div class="btn-row">
               <button type="button" class="btn btn--primary" data-action="exportar">${Icon('download')} Descargar respaldo</button>
               <label class="btn btn--ghost">${Icon('upload')} Cargar un respaldo<input type="file" accept="application/json,.json" id="importar" hidden></label>
@@ -749,12 +753,12 @@ const Views = (() => {
 
         <section class="set" aria-labelledby="s-demo">
           <div class="set__intro">
-            <h2 id="s-demo">Datos de ejemplo</h2>
-            <p>Para probar el sistema. Antes de usarlo de verdad, borre los ejemplos.</p>
+            <h2 id="s-demo">${local ? 'Datos de ejemplo' : 'Borrar información'}</h2>
+            <p>${local ? 'Para probar el sistema. Antes de usarlo de verdad, borre los ejemplos.' : 'Borra todos los clientes, servicios y notas. Antes, el servidor guarda una copia por si fue un error.'}</p>
           </div>
           <div class="set__body card card--danger">
             <div class="btn-row btn-row--flush">
-              <button type="button" class="btn btn--ghost" data-action="cargar-demo">${Icon('refresh')} Volver a cargar ejemplos</button>
+              ${local ? `<button type="button" class="btn btn--ghost" data-action="cargar-demo">${Icon('refresh')} Volver a cargar ejemplos</button>` : ''}
               <button type="button" class="btn btn--danger-ghost" data-action="borrar-todo">${Icon('trash')} Borrar todos los clientes</button>
             </div>
           </div>

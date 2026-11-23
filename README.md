@@ -18,7 +18,7 @@ python3 -m http.server 8000
 
 y abrir <http://localhost:8000>.
 
-**Opción 3 (en internet, gratis):** activar **GitHub Pages** en el repositorio (*Settings → Pages → Branch: `main` / root*). Quedará en `https://<usuario>.github.io/Control-plagas/`.
+**Opción 3 (en internet):** se publica en Netlify, Vercel, Cloudflare Pages o Firebase Hosting, con la API del servidor en la misma dirección bajo `/api`. GitHub Pages ya no sirve porque no permite `/api`. Los pasos están en [docs/API.md, sección 13](docs/API.md#13-front-listo-para-conectar-leonardo-23-de-noviembre-de-2026).
 
 > La primera vez que se abre, el sistema carga **15 clientes de ejemplo** (ficticios) con servicios, comentarios y seguimientos, para ver cómo funciona. Las fechas de ejemplo se calculan a partir del día de hoy, así que la demo siempre se ve “viva”.
 

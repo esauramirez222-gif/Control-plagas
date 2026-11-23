@@ -127,7 +127,7 @@ const C = (() => {
         <span class="done-row__icon">${Icon('check')}</span>
         <span class="done-row__main"><a href="#/cliente/${c.id}">${esc(Store.nombreCompleto(c))}</a>
           <small>${esc(s.tipo)}${s.hora ? `, ${U.formatTime(s.hora)}` : ''}</small></span>
-        <span class="done-row__price num">${s.precio ? U.money(s.precio) : '<span class="muted">Sin precio</span>'}</span>
+        <span class="done-row__price num">${s.precio ? U.money(s.precio) : Store.esAdmin() ? '<span class="muted">Sin precio</span>' : ''}</span>
       </li>`;
   }
 
@@ -295,7 +295,7 @@ const C = (() => {
           <time class="num">${U.formatDateTime(m.fecha)}</time>
           ${highlight ? badge('Más reciente', 'info') : ''}
           ${m.negativo ? badge('Negativo', 'danger') : ''}
-          <button class="icon-btn icon-btn--sm" data-action="borrar-comentario" data-id="${m.id}" aria-label="Borrar comentario" title="Borrar comentario">${Icon('trash')}</button>
+          ${Store.esAdmin() ? `<button class="icon-btn icon-btn--sm" data-action="borrar-comentario" data-id="${m.id}" aria-label="Borrar comentario" title="Borrar comentario">${Icon('trash')}</button>` : ''}
         </div>
         <p>${esc(m.texto).replace(/\n/g, '<br>')}</p>
       </li>`;

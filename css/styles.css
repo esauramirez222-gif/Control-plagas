@@ -385,6 +385,9 @@ a.client-row:hover .client-row__id strong { color: var(--brand); text-decoration
 .pulse__meta { font-size: .93rem; color: var(--ink-2); }
 .pulse__cta { align-self: flex-start; }
 .pulse .link-more { align-self: flex-start; }
+/* El técnico no ve "Cobrado": quedan dos tarjetas */
+.pulse--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pulse--2 .pulse__card:last-child { grid-column: auto; }
 
 .delta { display: inline-flex; align-items: center; gap: 4px; font-size: .86rem; color: var(--ink-3); margin-top: 4px; white-space: nowrap; }
 .delta .icon { width: 1em; height: 1em; }
@@ -899,6 +902,36 @@ code { background: var(--hover); border: 1px solid var(--line); padding: 0 5px; 
 .toast__action:hover { background: rgba(255,255,255,.1); }
 .toast.is-leaving { opacity: 0; transition: opacity .2s; }
 
+/* ------------------------------ Sesión y guardado (con servidor) ------------------------------ */
+.login { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; background: var(--navy-900); }
+.login__card {
+  width: min(400px, 100%); background: var(--surface); border-radius: var(--r); padding: 32px 28px 28px;
+  box-shadow: var(--shadow-pop); display: flex; flex-direction: column; gap: 14px;
+}
+.login__logo { width: 56px; height: 56px; }
+.login__title { font-family: var(--font-display); font-size: 1.75rem; }
+.login__sub { color: var(--ink-3); margin-top: -8px; }
+.login__card .field { margin: 0; }
+.login__card .alert { margin: 0; }
+.login__card .alert > div { flex-basis: 0; }
+.login__error { color: var(--danger); font-weight: 500; }
+.login__error:empty { display: none; }
+
+/* Indicador: aparece solo si guardar tarda, si no hay internet o justo después de guardar */
+.save-state {
+  display: inline-flex; align-items: center; gap: 7px; min-height: 32px; padding: 0 12px; border-radius: 999px;
+  font-size: .86rem; font-weight: 600; white-space: nowrap; background: var(--surface); color: var(--ink-2); border: 1px solid var(--line-2);
+}
+.save-state::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--line-strong); }
+.save-state.is-ok { color: var(--ok); border-color: currentColor; background: var(--ok-50); }
+.save-state.is-ok::before { background: var(--ok); }
+.save-state.is-off { color: var(--signal); border-color: currentColor; background: var(--signal-50); }
+.save-state.is-off::before { background: var(--signal-bright); }
+
+.loading { display: flex; align-items: center; gap: 10px; color: var(--ink-3); padding: 48px 0; }
+.loading__dot { width: 10px; height: 10px; border-radius: 50%; background: var(--brand); animation: cargando .8s ease-in-out infinite alternate; }
+@keyframes cargando { from { opacity: .25; } to { opacity: 1; } }
+
 /* ------------------------------ Responsivo ------------------------------ */
 @media (max-width: 1200px) {
   .client-row { grid-template-columns: minmax(170px, 1fr) minmax(180px, 1.2fr) 160px 20px; }
@@ -941,6 +974,9 @@ code { background: var(--hover); border: 1px solid var(--line); padding: 0 5px; 
   .topbar__title { font-size: 1.8rem; }
   .topbar__actions { display: contents; }
   .topbar .topbar__settings { display: inline-grid; order: 1; margin: -6px -8px 0 0; }
+  .topbar .topbar__salir { order: 1; margin: -6px -8px 0 0; }
+  .topbar .topbar__settings:has(+ .topbar__salir:not([hidden])) { margin-right: 0; }
+  .topbar .save-state { order: 1; margin-top: -2px; }
   .page-actions { order: 2; width: 100%; flex-wrap: nowrap; gap: 8px; }
   .page-actions .btn { flex: 1 1 0; min-width: 0; padding: 0 10px; }
   .main { padding: 0 16px 108px; }

@@ -131,6 +131,7 @@ Cuando exista el servidor, Leonardo agrega en el front los estados de **cargando
 - [ ] Respaldo automático diario en el servidor.
 - [ ] Migración: importar el JSON de "Descargar respaldo" para no perder lo capturado en el navegador.
 - [ ] Hospedaje sin dominio propio (Netlify, Vercel, Cloudflare Pages o Firebase Hosting), con la API en el mismo origen bajo `/api`. Ver [API.md §10](API.md#10-respuestas-de-leonardo-23-de-noviembre-de-2026).
+- [ ] Conectar el interior de `js/store.js` (bloque "Servidor y sesión"). El front ya usa esas funciones; contrato y pasos de despliegue en [API.md §13](API.md#13-front-listo-para-conectar-leonardo-23-de-noviembre-de-2026).
 
 ### Fuera de alcance por ahora
 - **API de WhatsApp: no se va a usar todavía.** El envío se queda como está: el front abre `wa.me` con el mensaje listo y la persona presiona enviar. No hace falta nada del lado del servidor para WhatsApp.

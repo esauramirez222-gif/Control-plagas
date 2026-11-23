@@ -1,6 +1,6 @@
 # Contrato de la API — propuesta para acordar
 
-**De:** Jaziel (backend) · **Para:** Leonardo (frontend) · **Estado:** acordado el 23 de noviembre de 2026; queda pendiente solo el punto de la sección 11
+**De:** Jaziel (backend) · **Para:** Leonardo (frontend) · **Estado:** acordado el 23 de noviembre de 2026 (último punto resuelto en la sección 12)
 
 Parte de la propuesta de [BACKEND.md](BACKEND.md), sección 4, y la ajusta con lo que encontré al revisar cada llamada que las pantallas hacen a `Store`. La idea sigue igual: **`Store` mantiene sus mismas funciones síncronas**, guarda todo en memoria y manda los cambios al servidor por detrás. Las pantallas no cambian.
 
@@ -112,7 +112,7 @@ DELETE /api/sesion                              (cerrar sesión)
 | Marcar “Ya se hizo”, enviar seguimiento | ✓ | ✓ |
 | Ver el precio de servicios pendientes | ✓ | ✓ |
 | Ver el precio de servicios realizados | ✓ | — |
-| Poner precio al registrar un servicio | ✓ | ✓ *(por confirmar, sección 11)* |
+| Poner precio al registrar un servicio | ✓ | ✓ *(acordado, sección 12)* |
 | Cambiar el precio después | ✓ | — |
 | Bloquear / desbloquear | ✓ | — |
 | Eliminar cliente o comentario | ✓ | — |
@@ -317,3 +317,113 @@ Actualicé el documento con las respuestas de la sección 10 para que no se cont
 - El campo de precio se muestra en el formulario de registro también para el técnico, y se esconde o se bloquea al editar un servicio.
 
 Leonardo, si prefieres que el técnico nunca capture precio, el servidor ignora el `precio` que mande un técnico al crear y tú escondes el campo. Dime cuál de las dos.
+
+---
+
+## 12. Respuesta de Leonardo a la sección 11 (23 de noviembre de 2026)
+
+**El técnico sí puede poner el precio al registrar un servicio.** Queda como lo propusiste:
+- `POST /api/servicios` acepta `precio` de un técnico.
+- Un `PATCH` con `precio` hecho por un técnico responde `403`. Si se equivoca, lo corrige el administrador.
+
+**Lo que hago yo en el front, para el técnico:**
+- El campo de precio aparece al registrar un servicio y se bloquea al editarlo.
+- **Le escondo el precio sugerido** ("Usar este precio"). Hoy `Store.precioSugerido(tipo)` promedia los precios de los servicios del mismo tipo. Como el técnico recibe `null` en los servicios realizados, el promedio saldría solo de los pendientes y no sería confiable. El administrador lo sigue viendo igual.
+
+Con esto el contrato queda acordado completo.
+
+---
+
+## 13. Front listo para conectar (Leonardo, 23 de noviembre de 2026)
+
+Ya está en el front todo lo que me tocaba del contrato. **Las pantallas ya usan las funciones nuevas de `Store`**. Hoy esas funciones trabajan en modo local (sin servidor), así que la app sigue funcionando igual que antes. Para conectar el servidor solo hay que cambiar su interior en [js/store.js](../js/store.js), en el bloque "Servidor y sesión".
+
+### Lo que te toca a ti (Jaziel), en orden
+
+1. **Confirmar los dos agregados** al contrato: `hoyServidor()` y el estado `'sin-sesion'` en `onEstado`. Se explican más abajo, en "Contrato exacto de las funciones". Si no estás de acuerdo con alguno, avísame antes de conectar.
+2. **Elegir servidor y hospedaje** (sección 10) y crear las cuentas. Solo tú puedes empezar el despliegue: el front no tiene nada pendiente para eso.
+3. **Servidor y base de datos:**
+   - El modelo de [BACKEND.md §2](BACKEND.md#2-modelo-de-datos-actual), más `version` y `actualizado`.
+   - Los endpoints de la sección 5.
+   - Las reglas que el servidor aplica siempre:
+     - Permisos por rol (sección 4).
+     - `precio: null` para el técnico en servicios realizados, en todas las respuestas.
+     - `403` si el técnico cambia un precio.
+     - `409` por `version`.
+     - Ventana de 15 segundos para deshacer.
+     - Fechas en hora de México.
+     - Las reglas de [BACKEND.md §3](BACKEND.md#3-reglas-de-negocio-que-el-servidor-debe-respetar).
+4. **Inicio de sesión:**
+   - Cookie `HttpOnly`, que se llama `__session` si usas Firebase Hosting.
+   - Contraseñas con hash.
+   - Bloqueo después de 5 intentos fallidos.
+   - Crear el primer usuario administrador.
+5. **Conectar el interior de `js/store.js`**, en el bloque "Servidor y sesión":
+   - Las funciones de la tabla "Contrato exacto de las funciones", en la columna "Con servidor".
+   - La cola de cambios en orden, guardada en `localStorage`.
+   - El reintento al volver la conexión.
+   - El envío del mensaje personalizado y de las plantillas 800 ms después de la última tecla.
+   - La recarga al volver a la pestaña después de 5 minutos.
+   - Los avisos con `avisarEstado`.
+   - `importJSON` y `exportJSON` usando los endpoints de respaldo.
+   - Al terminar, subir `?v=` en `index.html`.
+6. **Respaldo automático diario**, guardando los últimos 30, y la copia previa antes de cargar un respaldo o borrar todo.
+7. **Desplegar** siguiendo "Despliegue del front", más abajo.
+8. **Probar con datos de ejemplo** antes de la migración real. Revisar:
+   - Que funcione con un técnico y con un administrador.
+   - Qué pasa sin internet.
+   - Que dos personas editando a la vez den el aviso de `409`.
+9. **Migración:** el encargado descarga su respaldo actual y tú, como administrador, lo cargas en el servidor. Después de eso ya se usa de verdad.
+
+Cuando algo del front no cuadre con lo que el servidor necesita, avísame. No cambies pantallas ni la interfaz pública de `Store` sin acordarlo (ver `CLAUDE.md`).
+
+### Lo que ya hace el front
+
+| Qué | Dónde |
+|---|---|
+| Arranque con `Store.iniciar()`, que reemplaza a `load()`. Mientras carga muestra "Cargando su información…". Si falla, muestra el mensaje y el botón "Intentar de nuevo". | `js/app.js`, `arrancar()` |
+| Pantalla de inicio de sesión. Muestra tal cual el mensaje de error de `iniciarSesion`. Se puede cerrar sesión desde el botón de arriba a la derecha, que también muestra el nombre del usuario. | `js/app.js`, `mostrarLogin()` y `entrar()` |
+| Indicador de guardado con `Store.onEstado`. "Guardando…" aparece solo si tarda más de 0.4 s. Luego "Guardado", o "Sin conexión" fijo con un aviso. Los errores salen en un aviso con el texto del servidor. | `js/app.js`; estilo `.save-state` |
+| Aviso "La fecha de su equipo no es correcta" cuando `hoyServidor()` no coincide con la fecha del equipo. | `js/app.js`, `avisoFecha()` |
+| Técnico: no ve Negocio, Ajustes ni la tarjeta "Cobrado". No puede bloquear, desbloquear, eliminar clientes ni borrar notas. Tampoco ve "cobrado en total" ni las sumas de dinero del calendario. Pone precio al registrar, pero no lo cambia después. No ve el precio sugerido. Si escribe `#/negocio` o `#/ajustes` a mano, regresa a Inicio. | `js/views.js`, `js/forms.js`, `js/components.js` |
+| *Deshacer* de "Ya se hizo" con `Store.deshacerRealizado(id, antes)`. | `js/app.js` |
+| Si un técnico edita un servicio, el `PATCH` **no lleva `precio`**, así que no provoca el `403`. | `js/forms.js` |
+| `id` nuevos con `crypto.randomUUID()`, con `U.uid()` de respaldo. | `js/store.js`, `nuevoId()` |
+| Con servidor se esconden el recordatorio de "descargar respaldo" y "Volver a cargar ejemplos". En Ajustes, la sección de respaldo explica que el servidor se respalda solo. | `js/views.js` |
+
+### Contrato exacto de las funciones (lo que espera la pantalla)
+
+| Función | Modo local (hoy) | Con servidor |
+|---|---|---|
+| `iniciar()` → `Promise<boolean>` | Lee `localStorage`; la primera vez carga la demo. Resuelve `true`. | `true` = datos descargados y listos. `false` = no hay sesión (401), y la pantalla pide entrar. **Rechaza con `Error(mensaje)`** si no se pudo conectar; el mensaje se muestra tal cual. |
+| `iniciarSesion(usuario, contrasena)` → `Promise` | Rechaza: no hay servidor. | Resuelve al tener sesión. Rechaza con `Error('Usuario o contraseña incorrectos.')` u otro mensaje para el encargado. Después la pantalla llama a `iniciar()`. |
+| `cerrarSesion()` → `Promise` | Resuelve. | `DELETE /api/sesion`. Si rechaza, se muestra el mensaje y la sesión sigue. |
+| `usuario()` | `null` | `{ nombre, rol }` del usuario que inició sesión. |
+| `esAdmin()` | `true` | Se calcula a partir de `usuario()`; no hay que cambiarla. |
+| `modoLocal()` | `true` | `false`. Sugerencia: `location.protocol === 'file:'`, para que abrir `index.html` con doble clic siga funcionando sin servidor. |
+| `hoyServidor()` | `null` | El `hoy` de `GET /api/datos`. |
+| `onEstado(fn)` | Registra; nadie avisa. | Llamar `fn(estado, detalle)` con `avisarEstado(…)`, que ya existe dentro de `store.js`. |
+| `deshacerRealizado(id, antes)` | Regresa `{ estado, fecha, seguimiento }` en memoria. | Lo mismo, más `POST /api/servicios/:id/deshacer-realizado`. |
+
+**Dos agregados respecto a la sección 8.** Los dos son solo lecturas y no cambian ninguna función existente:
+- **`hoyServidor()`** y **`esAdmin()`**, descritas en la tabla anterior.
+- El estado **`'sin-sesion'`** en `onEstado`. Úsalo cuando una petición regrese `401` a media sesión: la pantalla cierra las ventanas abiertas, pide entrar otra vez y luego llama a `iniciar()`. La cola de cambios se conserva. Para `'error'`, manda en `detalle` el texto `error` del servidor.
+
+Al cambiar `store.js`, sube la versión `?v=` en `index.html`. Hoy va en `20261123a`.
+
+### Despliegue del front
+
+1. **No hay compilación.** Se publica tal cual la raíz del repositorio. Lo que necesita la app es `index.html`, `css/`, `js/`, `img/` y `fonts/`. No hace falta publicar `docs/`, `CLAUDE.md` ni `README.md`; conviene excluirlos.
+2. **Hospedaje sin dominio propio**, en el subdominio gratuito (`*.netlify.app`, `*.vercel.app`, `*.pages.dev` o `*.web.app`), siempre con HTTPS.
+3. **`/api/*` en el mismo origen**, con las funciones del propio hospedaje o con una regla de reescritura hacia tu servidor. Si se usa Firebase Hosting, la cookie se llama `__session` (sección 4).
+4. **Caché.** `index.html` con `Cache-Control: no-cache`, para que siempre se lea la versión nueva. `css/` y `js/` pueden guardarse en caché porque llevan `?v=`, y `fonts/` también.
+5. **Antes de usar datos reales:**
+   - El encargado descarga el respaldo desde el navegador que usa hoy, en *Ajustes → Descargar respaldo*.
+   - Ya con sesión de administrador, lo carga en *Ajustes → Cargar un respaldo*, que hace el `POST /api/respaldo`.
+   - Así no se pierde nada de lo que ya capturó.
+
+### Pruebas que pasaron
+
+Las corrí con Chrome sin pantalla, abriendo la app con doble clic (`file://`) y también servida por web (`http://`):
+- **Funciones y diseño:** 54 pruebas de funciones, 132 de diseño responsivo en 12 tamaños de pantalla y 40 en 5 celulares emulados. Todas siguen pasando.
+- **Modo con servidor, simulado:** 38 pruebas nuevas, con un técnico, sesión vencida, contraseña incorrecta, error de carga, sin conexión, error `409` y fecha del equipo incorrecta.

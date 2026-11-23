@@ -66,6 +66,44 @@ const Store = (() => {
 
   const onChange = (fn) => listeners.add(fn);
 
+  /** Identificador de registros nuevos. Lo crea el front y el servidor lo acepta tal cual (docs/API.md §1). */
+  const nuevoId = () => (globalThis.crypto?.randomUUID ? crypto.randomUUID() : U.uid());
+
+  /* ------------------------------ Servidor y sesión ------------------------------
+     Contrato acordado en docs/API.md (secciones 6, 8 y 13). Hoy no hay servidor: todo trabaja en
+     "modo local" con los datos de este navegador. Para conectar el servidor se cambia el interior de
+     estas funciones; las pantallas ya las usan y no tienen que cambiar. */
+  const estadoListeners = new Set();
+  /**
+   * Avisos para el indicador de guardado. Estados:
+   *   'guardando' | 'guardado' | 'sin-conexion' | 'error' (detalle = texto del servidor) | 'sin-sesion' (401: pedir sesión).
+   */
+  const onEstado = (fn) => estadoListeners.add(fn);
+  // En modo local nadie la llama; el servidor la usa al mandar la cola de cambios
+  const avisarEstado = (estado, detalle = '') => estadoListeners.forEach((fn) => fn(estado, detalle));
+
+  /** true = sin servidor: datos en este navegador, se permite la demo. */
+  const modoLocal = () => true;
+  /** Quién inició sesión: { nombre, rol: 'admin' | 'tecnico' }. null en modo local (puede hacer todo). */
+  const usuario = () => null;
+  /** Atajo para las pantallas: ¿puede ver dinero, bloquear, borrar y entrar a Ajustes? */
+  const esAdmin = () => { const u = usuario(); return !u || u.rol === 'admin'; };
+  /** Fecha de hoy según el servidor (America/Mexico_City), de GET /api/datos. null en modo local. */
+  const hoyServidor = () => null;
+
+  /**
+   * Arranque. Resuelve true cuando los datos están listos para dibujar, o false si hay que iniciar sesión.
+   * Si no se puede conectar, rechaza con un Error cuyo mensaje se muestra tal cual al encargado.
+   */
+  function iniciar() {
+    // Primera vez (o demo de una versión sin precios): cargar los datos de ejemplo
+    if ((!load() || esDemoAntigua()) && typeof buildDemoData === 'function') replaceAll(buildDemoData());
+    return Promise.resolve(true);
+  }
+  /** Rechaza con un Error cuyo mensaje se muestra tal cual (ej. "Usuario o contraseña incorrectos."). */
+  const iniciarSesion = () => Promise.reject(new Error('Todavía no hay servidor. La información se guarda en este navegador.'));
+  const cerrarSesion = () => Promise.resolve();
+
   /* ------------------------------ Clientes ------------------------------ */
   const nombreCompleto = (c) => `${c.nombre} ${c.apellido}`.trim();
   /** Dirección + ciudad del negocio, para que el mapa la encuentre sin confundirse de ciudad. */
@@ -83,7 +121,7 @@ const Store = (() => {
 
   function addCliente({ nombre, apellido, telefono, direccion }) {
     const c = {
-      id: U.uid(), nombre: nombre.trim(), apellido: apellido.trim(), telefono: U.phoneDigits(telefono),
+      id: nuevoId(), nombre: nombre.trim(), apellido: apellido.trim(), telefono: U.phoneDigits(telefono),
       direccion: direccion.trim(), fechaRegistro: U.todayStr(), bloqueado: false, motivoBloqueo: '', fechaBloqueo: null,
     };
     data.clientes.push(c);
@@ -113,7 +151,7 @@ const Store = (() => {
     c.motivoBloqueo = motivo.trim();
     c.fechaBloqueo = U.todayStr();
     // El motivo también queda en el historial de comentarios
-    data.comentarios.push({ id: U.uid(), clienteId: id, texto: `Cliente bloqueado. Motivo: ${c.motivoBloqueo}`, fecha: new Date().toISOString(), negativo: true });
+    data.comentarios.push({ id: nuevoId(), clienteId: id, texto: `Cliente bloqueado. Motivo: ${c.motivoBloqueo}`, fecha: new Date().toISOString(), negativo: true });
     // Los servicios pendientes de un cliente bloqueado se cancelan
     data.servicios.forEach((s) => {
       if (s.clienteId === id && s.estado === 'pendiente') s.estado = 'cancelado';
@@ -125,7 +163,7 @@ const Store = (() => {
     const c = getCliente(id);
     if (!c) return;
     c.bloqueado = false;
-    data.comentarios.push({ id: U.uid(), clienteId: id, texto: 'Cliente desbloqueado.', fecha: new Date().toISOString(), negativo: false });
+    data.comentarios.push({ id: nuevoId(), clienteId: id, texto: 'Cliente desbloqueado.', fecha: new Date().toISOString(), negativo: false });
     c.motivoBloqueo = '';
     c.fechaBloqueo = null;
     save();
@@ -145,7 +183,7 @@ const Store = (() => {
 
   function addServicio({ clienteId, tipo, fecha, hora = '', estado, seguimientoDias, precio = null }) {
     const s = {
-      id: U.uid(), clienteId, tipo: tipo || 'Fumigación general', fecha, hora, estado, precio: precio > 0 ? Number(precio) : null,
+      id: nuevoId(), clienteId, tipo: tipo || 'Fumigación general', fecha, hora, estado, precio: precio > 0 ? Number(precio) : null,
       seguimientoDias: Number(seguimientoDias) || 30, seguimiento: 'pendiente', fechaSeguimientoEnviado: null,
     };
     data.servicios.push(s);
@@ -171,6 +209,14 @@ const Store = (() => {
     s.seguimiento = 'pendiente';
     save();
     return antes;
+  }
+
+  /** Deshacer de "Ya se hizo": regresa { estado, fecha, seguimiento } a como estaban (POST …/deshacer-realizado). */
+  function deshacerRealizado(id, antes) {
+    const s = getServicio(id);
+    if (!s || !antes) return;
+    Object.assign(s, { estado: antes.estado, fecha: antes.fecha, seguimiento: antes.seguimiento });
+    save();
   }
 
   /** Servicios agendados que aún no se hacen, ordenados por fecha y hora. */
@@ -222,7 +268,7 @@ const Store = (() => {
   const ultimoComentario = (clienteId) => comentariosDe(clienteId)[0] || null;
 
   function addComentario(clienteId, texto, negativo = false) {
-    const m = { id: U.uid(), clienteId, texto: texto.trim(), fecha: new Date().toISOString(), negativo: !!negativo };
+    const m = { id: nuevoId(), clienteId, texto: texto.trim(), fecha: new Date().toISOString(), negativo: !!negativo };
     data.comentarios.push(m);
     save();
     return m;
@@ -309,5 +355,7 @@ const Store = (() => {
     seguimientosProximos, seguimientosEnviados, marcarSeguimiento, comentariosDe, ultimoComentario, addComentario,
     deleteComentario, mensajeSeguimiento, mensajeSeguimientoOriginal, setMensajeSeguimiento, mensajeRecordatorio, getAjustes, setAjustes, exportJSON, importJSON,
     replaceAll, clearAll, esDemoAntigua, esDemo, DEFAULT_AJUSTES,
+    // Servidor y sesión (docs/API.md §8 y §13)
+    iniciar, iniciarSesion, cerrarSesion, usuario, esAdmin, modoLocal, onEstado, hoyServidor, deshacerRealizado,
   };
 })();

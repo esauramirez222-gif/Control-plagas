@@ -11,8 +11,10 @@
       badgeLabel: 'servicios para hoy o atrasados',
     },
     { route: 'seguimiento', label: 'Seguimiento', icon: 'whatsapp', badge: () => Store.seguimientosPorEnviar().length, badgeLabel: 'mensajes por enviar' },
-    { route: 'negocio', label: 'Negocio', icon: 'chart' },
+    { route: 'negocio', label: 'Negocio', icon: 'chart', soloAdmin: true },
   ];
+  // Pantallas que el técnico no puede abrir (docs/API.md §4)
+  const SOLO_ADMIN = ['negocio', 'ajustes'];
   const reduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   /** Cambia la pantalla con una transición suave (View Transitions) cuando el navegador la soporta. */
@@ -54,7 +56,8 @@
 
   function renderNav(active) {
     const navActive = active === 'cliente' ? 'clientes' : active;
-    document.getElementById('nav-list').innerHTML = NAV.map((n) => {
+    const admin = Store.esAdmin();
+    document.getElementById('nav-list').innerHTML = NAV.filter((n) => admin || !n.soloAdmin).map((n) => {
       const b = n.badge ? n.badge() : 0;
       const alerta = n.alert ? n.alert() : false;
       return `<li><a href="#/${n.route}" class="nav__link ${navActive === n.route ? 'is-active' : ''}" ${navActive === n.route ? 'aria-current="page"' : ''}>
@@ -63,6 +66,12 @@
     const s = document.querySelector('.nav__settings');
     s.className = `nav__settings nav__link ${active === 'ajustes' ? 'is-active' : ''}`;
     s.innerHTML = `${Icon('settings')}<span>Ajustes</span>`;
+    s.hidden = !admin;
+    document.querySelector('.topbar__settings').hidden = !admin;
+    const u = Store.usuario();
+    const salir = document.getElementById('btn-salir');
+    salir.hidden = !u;
+    if (u) { salir.title = `Cerrar sesión (${u.nombre})`; salir.setAttribute('aria-label', salir.title); }
     document.getElementById('brand-name').textContent = Store.getAjustes().negocio;
   }
 
@@ -81,6 +90,10 @@
     if (route === 'bloqueados') {
       Views.ui.filtroClientes = 'bloqueados';
       location.replace('#/clientes');
+      return;
+    }
+    if (SOLO_ADMIN.includes(route) && !Store.esAdmin()) {
+      location.replace('#/inicio');
       return;
     }
     const views = {
@@ -103,7 +116,7 @@
     if (view.back) { back.href = view.back.href; back.innerHTML = `${Icon('chevronLeft')} ${view.back.label}`; }
     document.getElementById('page-actions').innerHTML = view.actions || '';
     document.title = `${view.title} · ${Store.getAjustes().negocio}`;
-    main.innerHTML = `<div class="view">${view.html}</div>`;
+    main.innerHTML = `<div class="view">${avisoFecha()}${view.html}</div>`;
     hydrateIcons(main);
     renderNav(route);
     // Las animaciones de entrada (gráficas que crecen, números que suben) solo al llegar a la pantalla
@@ -124,8 +137,17 @@
     lastRouteKey = key;
   }
 
-  window.addEventListener('hashchange', render);
-  Store.onChange(() => render());
+  /** Si la fecha del celular o la computadora no coincide con la del servidor, la agenda y los seguimientos saldrían mal. */
+  function avisoFecha() {
+    const hs = Store.hoyServidor();
+    if (!hs || hs === U.todayStr()) return '';
+    return `<div class="alert alert--warn" role="alert">${Icon('alert')}<div><strong>La fecha de su equipo no es correcta.</strong>
+      Hoy es ${U.formatDateLong(hs, true)}. Corríjala en la configuración del celular o la computadora para que la agenda y los mensajes salgan en el día correcto.</div></div>`;
+  }
+
+  let listo = false; // no se dibuja nada hasta tener los datos (y la sesión, si hay servidor)
+  window.addEventListener('hashchange', () => { if (listo) render(); });
+  Store.onChange(() => { if (listo) render(); });
 
   /* ---------- Acciones (delegación de eventos) ---------- */
   const actions = {
@@ -147,7 +169,7 @@
       const antes = Store.marcarRealizado(s.id);
       const seg = U.formatDateShort(Store.fechaSeguimiento(Store.getServicio(s.id)));
       UI.toast(`Servicio de ${U.esc(c.nombre)} marcado como hecho. Seguimiento por WhatsApp el ${seg}.`, 'ok', {
-        actionText: 'Deshacer', duration: 8000, onAction: () => Store.updateServicio(s.id, antes),
+        actionText: 'Deshacer', duration: 8000, onAction: () => Store.deshacerRealizado(s.id, antes),
       });
     },
 
@@ -318,6 +340,19 @@
       Store.replaceAll(buildDemoData());
       UI.toast('Datos de ejemplo cargados');
     },
+    'cerrar-sesion': async () => {
+      const u = Store.usuario();
+      const ok = await UI.confirm({ title: 'Cerrar sesión', message: `¿Quiere cerrar la sesión de <strong>${U.esc(u?.nombre || '')}</strong> en este equipo?`, okText: 'Sí, cerrar sesión' });
+      if (!ok) return;
+      try {
+        await Store.cerrarSesion();
+      } catch (err) {
+        UI.toast(U.esc(err.message || 'No se pudo cerrar la sesión. Revise su conexión.'), 'error');
+        return;
+      }
+      mostrarLogin();
+    },
+    reintentar: () => arrancar(),
     'borrar-todo': async () => {
       const ok = await UI.confirm({ title: 'Borrar todos los clientes', message: 'Se borrarán <strong>todos</strong> los clientes, servicios y comentarios. <strong>No se puede deshacer.</strong> Le recomendamos descargar un respaldo antes.', okText: 'Sí, borrar todo', danger: true });
       if (!ok) return;
@@ -363,6 +398,11 @@
   /* ---------- Formularios que viven dentro de las pantallas ---------- */
   document.addEventListener('submit', async (e) => {
     const form = e.target;
+    if (form.id === 'form-login') {
+      e.preventDefault();
+      entrar(form);
+      return;
+    }
     if (form.id === 'form-comentario') {
       e.preventDefault();
       const fd = new FormData(form);
@@ -374,7 +414,7 @@
       Store.addComentario(id, texto, negativo);
       UI.toast('Comentario agregado');
       const c = Store.getCliente(id);
-      if (negativo && !c.bloqueado) {
+      if (negativo && !c.bloqueado && Store.esAdmin()) {
         const ok = await UI.confirm({ title: 'Comentario negativo', message: `¿Quiere también <strong>bloquear</strong> a ${U.esc(Store.nombreCompleto(c))}?`, okText: 'Sí, bloquear', cancelText: 'No, solo guardar el comentario', danger: true });
         if (ok) Forms.bloquear(id, texto);
       }
@@ -446,10 +486,129 @@
     }
   });
 
-  /* ---------- Inicio ---------- */
+  /* ---------- Inicio de sesión (solo con servidor) ---------- */
+  const appEl = document.querySelector('.app');
+
+  function mostrarLogin(aviso = '') {
+    listo = false;
+    // Las ventanas abiertas se cierran: sin sesión no se puede guardar nada
+    document.getElementById('modal-root').replaceChildren();
+    document.body.classList.remove('no-scroll');
+    appEl.hidden = true;
+    let root = document.getElementById('login');
+    if (!root) {
+      root = document.createElement('main');
+      root.id = 'login';
+      root.className = 'login';
+      document.body.prepend(root);
+    }
+    root.innerHTML = `
+      <form class="login__card" id="form-login" novalidate>
+        <img class="login__logo" src="img/logo-hk.svg" alt="" width="56" height="56">
+        <h1 class="login__title">${U.esc(Store.getAjustes().negocio)}</h1>
+        <p class="login__sub">Entre con su usuario para ver clientes, agenda y seguimientos.</p>
+        ${aviso ? `<div class="alert alert--info">${Icon('info')}<div>${aviso}</div></div>` : ''}
+        <div class="field"><label for="l-usuario">Usuario</label>
+          <input id="l-usuario" name="usuario" autocomplete="username" autocapitalize="none" spellcheck="false"></div>
+        <div class="field"><label for="l-contrasena">Contraseña</label>
+          <input id="l-contrasena" name="contrasena" type="password" autocomplete="current-password"></div>
+        <p class="login__error" id="login-error" role="alert"></p>
+        <button class="btn btn--primary btn--lg btn--block" type="submit">Entrar</button>
+      </form>`;
+    document.title = `Iniciar sesión · ${Store.getAjustes().negocio}`;
+    setTimeout(() => root.querySelector('#l-usuario')?.focus(), 50);
+  }
+
+  async function entrar(form) {
+    const fd = new FormData(form);
+    const usuario = (fd.get('usuario') || '').trim();
+    const contrasena = fd.get('contrasena') || '';
+    const errores = {};
+    if (!usuario) errores.usuario = 'Escriba su usuario.';
+    if (!contrasena) errores.contrasena = 'Escriba su contraseña.';
+    if (!UI.showErrors(form, errores)) return;
+    const btn = form.querySelector('[type=submit]');
+    const msg = form.querySelector('#login-error');
+    btn.disabled = true;
+    btn.textContent = 'Entrando…';
+    msg.textContent = '';
+    try {
+      await Store.iniciarSesion(usuario, contrasena);
+      await arrancar();
+    } catch (err) {
+      msg.textContent = err.message || 'No se pudo iniciar sesión. Revise su conexión e intente de nuevo.';
+      btn.disabled = false;
+      btn.textContent = 'Entrar';
+      const pass = form.querySelector('[name=contrasena]');
+      pass.value = '';
+      pass.focus();
+    }
+  }
+
+  /* ---------- Indicador de guardado (solo con servidor) ---------- */
+  const estadoEl = document.getElementById('save-state');
+  let estadoT;
+  let avisoSinConexion = false;
+  const ESTADOS = {
+    guardando: { texto: 'Guardando…', clase: '' },
+    guardado: { texto: 'Guardado', clase: 'is-ok' },
+    'sin-conexion': { texto: 'Sin conexión', clase: 'is-off', title: 'Puede seguir trabajando. Los cambios se guardan cuando vuelva el internet.' },
+  };
+  function mostrarEstado(nombre) {
+    const e = ESTADOS[nombre];
+    estadoEl.className = `save-state ${e.clase}`;
+    estadoEl.textContent = e.texto;
+    estadoEl.title = e.title || '';
+    estadoEl.hidden = false;
+  }
+  Store.onEstado((estado, detalle) => {
+    clearTimeout(estadoT);
+    if (estado === 'guardando') {
+      // Solo se muestra si tarda: guardar rápido no necesita aviso
+      estadoT = setTimeout(() => mostrarEstado('guardando'), 400);
+    } else if (estado === 'guardado') {
+      avisoSinConexion = false;
+      if (!estadoEl.hidden) { mostrarEstado('guardado'); estadoT = setTimeout(() => { estadoEl.hidden = true; }, 2000); }
+    } else if (estado === 'sin-conexion') {
+      mostrarEstado('sin-conexion');
+      if (!avisoSinConexion) {
+        avisoSinConexion = true;
+        UI.toast('Se perdió la conexión. Puede seguir trabajando; los cambios se guardarán cuando vuelva el internet.', 'info', { duration: 6000 });
+      }
+    } else if (estado === 'error') {
+      estadoEl.hidden = true;
+      UI.toast(U.esc(detalle || 'No se pudo guardar el último cambio. Intente de nuevo.'), 'error', { duration: 7000 });
+    } else if (estado === 'sin-sesion') {
+      estadoEl.hidden = true;
+      mostrarLogin('Su sesión terminó. Vuelva a entrar; lo que no se había guardado se guarda al entrar.');
+    }
+  });
+
+  /* ---------- Arranque ---------- */
+  async function arrancar() {
+    listo = false;
+    // Con servidor la descarga puede tardar; en modo local esto no se alcanza a ver
+    if (appEl.hidden === false) main.innerHTML = '<div class="loading" role="status"><span class="loading__dot"></span>Cargando su información…</div>';
+    try {
+      const conSesion = await Store.iniciar();
+      if (!conSesion) { mostrarLogin(); return; }
+    } catch (err) {
+      appEl.hidden = false;
+      document.getElementById('login')?.remove();
+      main.innerHTML = `<div class="empty"><h3>No se pudo cargar la información</h3>
+        <p>${U.esc(err.message || 'Revise su conexión a internet.')}</p>
+        <button class="btn btn--primary" data-action="reintentar">${Icon('refresh')} Intentar de nuevo</button></div>`;
+      return;
+    }
+    document.getElementById('login')?.remove();
+    appEl.hidden = false;
+    listo = true;
+    lastRouteKey = '';
+    if (!location.hash) location.hash = '#/inicio';
+    render();
+  }
+
   hydrateIcons(document);
   Charts.init();
-  if (!Store.load() || Store.esDemoAntigua()) Store.replaceAll(buildDemoData()); // primera vez (o demo sin precios): cargar demo
-  if (!location.hash) location.hash = '#/inicio';
-  render();
+  arrancar();
 })();
